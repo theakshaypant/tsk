@@ -9,9 +9,14 @@ type EventStatus int
 
 const (
 	StatusAccepted EventStatus = iota
+	// User declined
 	StatusRejected
+	// User marked as tentative
 	StatusTentative
+	// Awaiting user's response
 	StatusAwaiting
+	// No response needed (subscribed calendars, self-created events)
+	StatusNoResponse
 )
 
 // EventType represents the kind of calendar entry.
@@ -23,6 +28,14 @@ const (
 	TypeFocusTime                     // Focus time block
 	TypeWorkLocation                  // Working location (home/office)
 )
+
+// Calendar represents the calendar an event belongs to.
+type Calendar struct {
+	// Calendar ID (e.g., "primary", "user@example.com", subscription ID)
+	ID string
+	// Human-readable name (e.g., "Work", "Holidays in India")
+	Name string
+}
 
 // Attachment represents a file linked to an event.
 // Only store the link, we do not download the content.
@@ -42,6 +55,8 @@ type Event struct {
 	ID string
 	// The ID of the provider source (e.g., "personal_google")
 	ProviderID string
+	// Which calendar this event belongs to
+	Calendar Calendar
 	// Type of calendar entry
 	Type EventType
 	// Details

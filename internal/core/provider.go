@@ -10,6 +10,10 @@ type FetchOptions struct {
 	Start time.Time
 	End   time.Time
 
+	// Filter by calendar ID. Empty means all calendars.
+	// Use specific IDs to fetch from only certain calendars.
+	CalendarIDs []string
+
 	// Filter by event type. Empty means only default events.
 	// To include OOO, focus time, etc., add them explicitly.
 	IncludeTypes []EventType
