@@ -1,0 +1,184 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/calendar/v3"
+)
+
+const (
+	redirectPort = "8085"
+	redirectURL  = "http://localhost:" + redirectPort + "/callback"
+)
+
+var authCmd = &cobra.Command{
+	Use:   "auth",
+	Short: "Authenticate with Google Calendar",
+	Long: `Authenticate with Google Calendar using OAuth.
+
+This command will:
+1. Start a local server to receive the OAuth callback
+2. Open your browser to sign in with Google
+3. Save the token to token.json for future use`,
+	RunE:              runAuth,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil }, // Skip adapter init
+}
+
+func init() {
+	rootCmd.AddCommand(authCmd)
+}
+
+func runAuth(cmd *cobra.Command, args []string) error {
+	credsFile := viper.GetString("credentials_file")
+	tokenFile := viper.GetString("token_file")
+
+	b, err := os.ReadFile(credsFile)
+	if err != nil {
+		return fmt.Errorf("unable to read credentials file: %w\n\nDownload it from Google Cloud Console:\n  1. Go to https://console.cloud.google.com\n  2. APIs & Services → Credentials\n  3. Create OAuth 2.0 Client ID (Desktop app)\n  4. Download JSON and save as %s", err, credsFile)
+	}
+
+	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope)
+	if err != nil {
+		return fmt.Errorf("unable to parse credentials: %w", err)
+	}
+
+	config.RedirectURL = redirectURL
+
+	tok, err := getTokenViaLocalServer(config)
+	if err != nil {
+		return fmt.Errorf("failed to get token: %w", err)
+	}
+
+	if err := saveToken(tokenFile, tok); err != nil {
+		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	fmt.Println("\n✅ Authentication successful!")
+	fmt.Printf("📁 Token saved to %s\n", tokenFile)
+	fmt.Println("\nYou can now run 'tsk' to see your calendar events.")
+
+	return nil
+}
+
+func getTokenViaLocalServer(config *oauth2.Config) (*oauth2.Token, error) {
+	codeChan := make(chan string, 1)
+	errChan := make(chan error, 1)
+
+	server := &http.Server{Addr: ":" + redirectPort}
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			errMsg := r.URL.Query().Get("error")
+			http.Error(w, "Authorization failed: "+errMsg, http.StatusBadRequest)
+			errChan <- fmt.Errorf("authorization failed: %s", errMsg)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>Authorization Successful</title>
+				<style>
+					body { font-family: -apple-system, sans-serif; display: flex; 
+					       justify-content: center; align-items: center; height: 100vh;
+					       margin: 0; background: #1a1a1a; color: #fff; }
+					.card { background: #2d2d2d; padding: 40px; border-radius: 12px; 
+					        box-shadow: 0 2px 10px rgba(0,0,0,0.3); text-align: center; }
+					h1 { color: #4ade80; margin-bottom: 10px; }
+					p { color: #a1a1aa; }
+				</style>
+			</head>
+			<body>
+				<div class="card">
+					<h1>✓ Authorization Successful</h1>
+					<p>You can close this window and return to the terminal.</p>
+				</div>
+			</body>
+			</html>
+		`)
+
+		codeChan <- code
+	})
+
+	server.Handler = mux
+
+	go func() {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			errChan <- err
+		}
+	}()
+
+	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+
+	fmt.Println("🔐 Opening browser for Google authorization...")
+	fmt.Println()
+
+	if err := openBrowser(authURL); err != nil {
+		fmt.Println("⚠️  Couldn't open browser automatically.")
+		fmt.Println("   Please open this URL manually:")
+		fmt.Println(authURL)
+	}
+
+	fmt.Println("⏳ Waiting for authorization...")
+
+	var code string
+	select {
+	case code = <-codeChan:
+	case err := <-errChan:
+		server.Shutdown(context.Background())
+		return nil, err
+	case <-time.After(5 * time.Minute):
+		server.Shutdown(context.Background())
+		return nil, fmt.Errorf("timeout waiting for authorization")
+	}
+
+	server.Shutdown(context.Background())
+
+	tok, err := config.Exchange(context.Background(), code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code: %w", err)
+	}
+
+	return tok, nil
+}
+
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+
+	return cmd.Start()
+}
+
+func saveToken(path string, token *oauth2.Token) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(token)
+}
