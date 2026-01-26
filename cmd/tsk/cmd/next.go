@@ -26,7 +26,6 @@ func init() {
 
 func runNext(cmd *cobra.Command, args []string) error {
 	// Read from viper to get profile settings, with flag overrides
-	days := viper.GetInt("days")
 	calendars := viper.GetString("calendars")
 	showOOO := viper.GetBool("ooo")
 	showFocus := viper.GetBool("focus")
@@ -39,10 +38,42 @@ func runNext(cmd *cobra.Command, args []string) error {
 	noAllDay := viper.GetBool("no_allday")
 
 	now := time.Now()
-	end := now.Add(time.Duration(days) * 24 * time.Hour)
+	var start, end time.Time
+
+	// Determine date range
+	fromStr := viper.GetString("from")
+	toStr := viper.GetString("to")
+
+	if fromStr != "" || toStr != "" {
+		if fromStr != "" {
+			var err error
+			start, err = parseDate(fromStr, now)
+			if err != nil {
+				return err
+			}
+		} else {
+			start = now
+		}
+
+		if toStr != "" {
+			var err error
+			end, err = parseDate(toStr, now)
+			if err != nil {
+				return err
+			}
+			end = end.Add(24*time.Hour - time.Second)
+		} else {
+			days := viper.GetInt("days")
+			end = start.Add(time.Duration(days) * 24 * time.Hour)
+		}
+	} else {
+		days := viper.GetInt("days")
+		start = now
+		end = now.Add(time.Duration(days) * 24 * time.Hour)
+	}
 
 	opts := core.FetchOptions{
-		Start: now,
+		Start: start,
 		End:   end,
 	}
 

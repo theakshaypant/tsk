@@ -31,8 +31,12 @@ profiles:
     # Calendar filter (comma-separated, empty = all calendars)
     # calendars: "user@company.com,Team Calendar"
     
+    # Date range (use days OR from/to)
+    days: 14                    # Next 14 days from now
+    # from: "monday"            # Or use explicit date range
+    # to: "friday"              # Supports: YYYY-MM-DD, today, tomorrow, weekday names
+    
     # Filters
-    days: 14
     smart_ooo: true
     subscribed: true
     ooo: true
@@ -122,3 +126,29 @@ profiles:
     smart_ooo: true
     ooo: true
     accepted: true
+
+  # This week only - using date range
+  thisweek:
+    credentials_file: ~/.config/tsk/work_credentials.json
+    token_file: ~/.config/tsk/work_token.json
+    primary_calendar: "user@company.com"
+    
+    # Date range: Monday to Friday
+    from: "monday"
+    to: "friday"
+    
+    smart_ooo: true
+    no_allday: true
+    accepted: true
+
+    display:
+      calendar: true
+      time: true
+      location: false
+      meeting_link: true
+      description: false
+      status: false
+      event_url: false
+      attachments: false
+      id: false
+      in_progress: true

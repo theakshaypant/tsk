@@ -46,7 +46,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&profile, "profile", "p", "", "config profile to use (e.g., work, personal)")
 
 	// Filter flags (persistent - inherited by next, calendars, etc.)
-	rootCmd.PersistentFlags().IntP("days", "d", 7, "Number of days to fetch")
+	rootCmd.PersistentFlags().IntP("days", "d", 7, "Number of days to fetch (ignored if --from/--to specified)")
+	rootCmd.PersistentFlags().String("from", "", "Start date (YYYY-MM-DD, 'today', 'tomorrow', 'monday', etc.)")
+	rootCmd.PersistentFlags().String("to", "", "End date (YYYY-MM-DD, 'today', 'tomorrow', 'monday', etc.)")
 	rootCmd.PersistentFlags().StringP("calendars", "c", "", "Comma-separated list of calendar names to filter")
 	rootCmd.PersistentFlags().Bool("ooo", true, "Include out-of-office events")
 	rootCmd.PersistentFlags().Bool("focus", false, "Include focus time events")
@@ -60,6 +62,8 @@ func init() {
 
 	// Bind persistent flags to viper
 	viper.BindPFlag("days", rootCmd.PersistentFlags().Lookup("days"))
+	viper.BindPFlag("from", rootCmd.PersistentFlags().Lookup("from"))
+	viper.BindPFlag("to", rootCmd.PersistentFlags().Lookup("to"))
 	viper.BindPFlag("calendars", rootCmd.PersistentFlags().Lookup("calendars"))
 	viper.BindPFlag("ooo", rootCmd.PersistentFlags().Lookup("ooo"))
 	viper.BindPFlag("focus", rootCmd.PersistentFlags().Lookup("focus"))
@@ -131,6 +135,8 @@ func applyProfile() {
 		"credentials_file",
 		"token_file",
 		"days",
+		"from",
+		"to",
 		"calendars",
 		"primary_calendar",
 		"ooo",
@@ -208,12 +214,47 @@ func initAdapter(cmd *cobra.Command, args []string) error {
 }
 
 func listEvents(cmd *cobra.Command, args []string) error {
-	days := viper.GetInt("days")
 	now := time.Now()
-	end := now.Add(time.Duration(days) * 24 * time.Hour)
+	var start, end time.Time
+
+	// Determine date range
+	fromStr := viper.GetString("from")
+	toStr := viper.GetString("to")
+
+	if fromStr != "" || toStr != "" {
+		// Use explicit date range
+		if fromStr != "" {
+			var err error
+			start, err = parseDate(fromStr, now)
+			if err != nil {
+				return err
+			}
+		} else {
+			start = now
+		}
+
+		if toStr != "" {
+			var err error
+			end, err = parseDate(toStr, now)
+			if err != nil {
+				return err
+			}
+			// End of day
+			end = end.Add(24*time.Hour - time.Second)
+		} else {
+			// Default to 7 days from start
+			days := viper.GetInt("days")
+			end = start.Add(time.Duration(days) * 24 * time.Hour)
+		}
+	} else {
+		// Use days from now
+		days := viper.GetInt("days")
+		start = now
+		end = now.Add(time.Duration(days) * 24 * time.Hour)
+	}
 
 	opts := core.FetchOptions{
-		Start: now,
+		Start: start,
 		End:   end,
 	}
 
@@ -594,6 +635,68 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// parseDate parses a date string in various formats
+// Supports: YYYY-MM-DD, "today", "tomorrow", "yesterday", weekday names
+func parseDate(s string, defaultTime time.Time) (time.Time, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	switch s {
+	case "today":
+		return today, nil
+	case "tomorrow":
+		return today.AddDate(0, 0, 1), nil
+	case "yesterday":
+		return today.AddDate(0, 0, -1), nil
+	}
+
+	// Check for weekday names (e.g., "monday", "next tuesday")
+	weekdays := map[string]time.Weekday{
+		"sunday": time.Sunday, "sun": time.Sunday,
+		"monday": time.Monday, "mon": time.Monday,
+		"tuesday": time.Tuesday, "tue": time.Tuesday,
+		"wednesday": time.Wednesday, "wed": time.Wednesday,
+		"thursday": time.Thursday, "thu": time.Thursday,
+		"friday": time.Friday, "fri": time.Friday,
+		"saturday": time.Saturday, "sat": time.Saturday,
+	}
+
+	// Handle "next <weekday>"
+	dayName := strings.TrimPrefix(s, "next ")
+	if wd, ok := weekdays[dayName]; ok {
+		daysUntil := int(wd - today.Weekday())
+		if daysUntil <= 0 {
+			daysUntil += 7
+		}
+		return today.AddDate(0, 0, daysUntil), nil
+	}
+
+	// Try parsing as YYYY-MM-DD
+	if t, err := time.ParseInLocation("2006-01-02", s, now.Location()); err == nil {
+		return t, nil
+	}
+
+	// Try parsing as MM-DD (current year)
+	if t, err := time.ParseInLocation("01-02", s, now.Location()); err == nil {
+		t = t.AddDate(now.Year(), 0, 0)
+		return t, nil
+	}
+
+	// Try parsing as MM/DD
+	if t, err := time.ParseInLocation("01/02", s, now.Location()); err == nil {
+		t = t.AddDate(now.Year(), 0, 0)
+		return t, nil
+	}
+
+	// Try parsing as MM/DD/YYYY
+	if t, err := time.ParseInLocation("01/02/2006", s, now.Location()); err == nil {
+		return t, nil
+	}
+
+	return defaultTime, fmt.Errorf("unable to parse date: %s (use YYYY-MM-DD, 'today', 'tomorrow', or weekday names)", s)
 }
 
 // expandPath expands ~ to the user's home directory
