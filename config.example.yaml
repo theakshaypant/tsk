@@ -1,0 +1,124 @@
+# tsk - Calendar CLI Configuration
+# Copy to: ~/.config/tsk/config.yaml
+
+# ─────────────────────────────────────────────────
+# Default Profile
+# ─────────────────────────────────────────────────
+default_profile: work
+
+# ─────────────────────────────────────────────────
+# Profiles
+# ─────────────────────────────────────────────────
+# Each profile is a complete configuration:
+#   - Which Google account (credentials)
+#   - What filters to apply
+#   - What fields to display
+#
+# Use with: tsk -p work  or  tsk --profile today
+
+profiles:
+  # ─────────────────────────────────────────────
+  # Work account profiles
+  # ─────────────────────────────────────────────
+  
+  # Full work calendar view
+  work:
+    # Google account credentials
+    credentials_file: ~/.config/tsk/work_credentials.json
+    token_file: ~/.config/tsk/work_token.json
+    primary_calendar: "user@company.com"
+    
+    # Calendar filter (comma-separated, empty = all calendars)
+    # calendars: "user@company.com,Team Calendar"
+    
+    # Filters
+    days: 14
+    smart_ooo: true
+    subscribed: true
+    ooo: true
+    focus: false
+    workloc: false
+    accepted: true
+    no_allday: false
+
+    # Display options (all fields shown by default)
+    display:
+      calendar: true
+      time: true
+      location: true
+      meeting_link: true
+      description: true
+      status: true
+      event_url: true
+      attachments: false
+      id: false
+      in_progress: true
+
+  # Same work account - just today's meetings (minimal display)
+  today:
+    credentials_file: ~/.config/tsk/work_credentials.json
+    token_file: ~/.config/tsk/work_token.json
+    primary_calendar: "user@company.com"
+    
+    # Filters - focused view
+    days: 1
+    smart_ooo: true
+    subscribed: false
+    ooo: false
+    no_allday: true
+    accepted: true
+
+    # Minimal display - just what you need
+    display:
+      calendar: false       # Skip calendar name
+      time: true
+      location: false
+      meeting_link: true    # Quick join link
+      description: false    # Skip descriptions
+      status: false         # Skip response status
+      event_url: false      # Skip event links
+      attachments: false
+      id: false
+      in_progress: true
+
+  # Same work account - only actual meetings
+  meetings:
+    credentials_file: ~/.config/tsk/work_credentials.json
+    token_file: ~/.config/tsk/work_token.json
+    primary_calendar: "user@company.com"
+    
+    # Filter to real meetings only
+    days: 7
+    ooo: false
+    focus: false
+    workloc: false
+    no_allday: true
+    subscribed: false
+    accepted: true
+
+    # Show meeting-relevant fields
+    display:
+      calendar: true
+      time: true
+      location: true
+      meeting_link: true
+      description: true
+      status: true
+      event_url: false
+      attachments: true
+      id: false
+      in_progress: true
+
+  # Primary calendar only - no subscribed calendars
+  primary_only:
+    credentials_file: ~/.config/tsk/work_credentials.json
+    token_file: ~/.config/tsk/work_token.json
+    primary_calendar: "user@company.com"
+    
+    # Only show events from primary calendar
+    calendars: "user@company.com"
+    
+    days: 7
+    smart_ooo: true
+    ooo: true
+    accepted: true

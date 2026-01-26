@@ -1,0 +1,12 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Build
+/bin/
+/dist/
+/tsk
+
+# OS
+.DS_Store
