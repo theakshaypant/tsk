@@ -64,8 +64,10 @@ type Event struct {
 	Description string
 	Location    string
 	Status      EventStatus
-	// Video call link or event page
-	URL         string
+	// Calendar event page URL
+	URL string
+	// Video conferencing link (Google Meet, Zoom, Teams, etc.)
+	MeetingLink string
 	Attachments []Attachment
 	// Timing
 	Start    time.Time
