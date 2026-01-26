@@ -1,0 +1,958 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/theakshaypant/tsk/internal/core"
+)
+
+// KeyMap defines the keybindings for the TUI
+type KeyMap struct {
+	Up         key.Binding
+	Down       key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	Open       key.Binding
+	Refresh    key.Binding
+	NextDay    key.Binding
+	PrevDay    key.Binding
+	Today      key.Binding
+	Tab        key.Binding
+	ForwardDay key.Binding
+	BackDay    key.Binding
+	Quit       key.Binding
+	Help       key.Binding
+}
+
+var DefaultKeyMap = KeyMap{
+	Up: key.NewBinding(
+		key.WithKeys("up", "k"),
+		key.WithHelp("↑/k", "up"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("down", "j"),
+		key.WithHelp("↓/j", "down"),
+	),
+	ScrollUp: key.NewBinding(
+		key.WithKeys("ctrl+u", "pgup"),
+		key.WithHelp("ctrl+u", "scroll up"),
+	),
+	ScrollDown: key.NewBinding(
+		key.WithKeys("ctrl+d", "pgdown"),
+		key.WithHelp("ctrl+d", "scroll down"),
+	),
+	Open: key.NewBinding(
+		key.WithKeys("enter", "o"),
+		key.WithHelp("enter/o", "open link"),
+	),
+	Refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
+	),
+	NextDay: key.NewBinding(
+		key.WithKeys("l", "right"),
+		key.WithHelp("→/l", "next day"),
+	),
+	PrevDay: key.NewBinding(
+		key.WithKeys("h", "left"),
+		key.WithHelp("←/h", "prev day"),
+	),
+	Today: key.NewBinding(
+		key.WithKeys("t"),
+		key.WithHelp("t", "today"),
+	),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "switch panel"),
+	),
+	ForwardDay: key.NewBinding(
+		key.WithKeys("n", "]"),
+		key.WithHelp("n/]", "next day"),
+	),
+	BackDay: key.NewBinding(
+		key.WithKeys("p", "["),
+		key.WithHelp("p/[", "prev day"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c"),
+		key.WithHelp("q", "quit"),
+	),
+	Help: key.NewBinding(
+		key.WithKeys("?"),
+		key.WithHelp("?", "help"),
+	),
+}
+
+// Panel focus for compact mode
+type PanelFocus int
+
+const (
+	FocusList PanelFocus = iota
+	FocusDetail
+)
+
+// Model is the Bubble Tea model for the TUI
+type Model struct {
+	events        []core.Event
+	selectedIdx   int
+	currentDate   time.Time
+	width         int
+	height        int
+	listWidth     int
+	detailWidth   int
+	contentHeight int
+	keys          KeyMap
+	provider      core.Provider
+	fetchOptions  core.FetchOptions
+	loading       bool
+	err           error
+	listView      viewport.Model
+	detailView    viewport.Model
+	viewportReady bool
+	compactMode   bool       // True when terminal is too narrow for side-by-side
+	focusedPanel  PanelFocus // Which panel is shown in compact mode
+}
+
+// NewModel creates a new TUI model
+func NewModel(provider core.Provider, opts core.FetchOptions) Model {
+	return Model{
+		events:       []core.Event{},
+		selectedIdx:  0,
+		currentDate:  time.Now(),
+		keys:         DefaultKeyMap,
+		provider:     provider,
+		fetchOptions: opts,
+		loading:      true,
+	}
+}
+
+// Messages
+type eventsLoadedMsg struct {
+	events []core.Event
+	err    error
+}
+
+type tickMsg time.Time
+
+// Commands
+func (m Model) loadEvents() tea.Cmd {
+	return func() tea.Msg {
+		// Set date range for current day
+		start := time.Date(m.currentDate.Year(), m.currentDate.Month(), m.currentDate.Day(), 0, 0, 0, 0, m.currentDate.Location())
+		end := start.Add(24 * time.Hour)
+
+		opts := m.fetchOptions
+		opts.Start = start
+		opts.End = end
+
+		events, err := m.provider.FetchEvents(context.Background(), opts)
+		return eventsLoadedMsg{events: events, err: err}
+	}
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Minute, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+// Init initializes the model
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(m.loadEvents(), tickCmd())
+}
+
+// calculateLayout calculates responsive layout dimensions
+func (m *Model) calculateLayout() {
+	// Minimum dimensions
+	minHeight := 10
+
+	width := m.width
+	height := m.height
+
+	if height < minHeight {
+		height = minHeight
+	}
+
+	// Header: ~2 lines, Help: ~2 lines, Padding: ~2 lines
+	m.contentHeight = height - 6
+	if m.contentHeight < 5 {
+		m.contentHeight = 5
+	}
+
+	// Compact mode threshold - if too narrow for side-by-side
+	compactThreshold := 70
+	m.compactMode = width < compactThreshold
+
+	if m.compactMode {
+		// Single panel mode - use full width
+		m.listWidth = width - 4
+		m.detailWidth = width - 4
+		if m.listWidth < 20 {
+			m.listWidth = 20
+		}
+		if m.detailWidth < 20 {
+			m.detailWidth = 20
+		}
+	} else {
+		// Side-by-side mode
+		// Responsive list/detail split based on width
+		if width < 100 {
+			// Narrow: 40% list, 60% detail
+			m.listWidth = width * 40 / 100
+		} else if width < 140 {
+			// Medium: 35% list, 65% detail
+			m.listWidth = width * 35 / 100
+		} else {
+			// Wide: 30% list, 70% detail (but cap list width)
+			m.listWidth = width * 30 / 100
+			if m.listWidth > 55 {
+				m.listWidth = 55
+			}
+		}
+
+		// Minimum list width
+		if m.listWidth < 30 {
+			m.listWidth = 30
+		}
+
+		// Detail width is remainder minus gap
+		m.detailWidth = width - m.listWidth - 5
+		if m.detailWidth < 35 {
+			m.detailWidth = 35
+		}
+	}
+}
+
+// Update handles messages
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		// Calculate layout dimensions
+		m.calculateLayout()
+
+		// Calculate viewport dimensions
+		listViewportHeight := m.contentHeight - 4 // Account for borders and header
+		if listViewportHeight < 1 {
+			listViewportHeight = 1
+		}
+		listViewportWidth := m.listWidth - 4
+		if listViewportWidth < 10 {
+			listViewportWidth = 10
+		}
+
+		detailViewportHeight := m.contentHeight - 4 // Account for panel header and borders
+		if detailViewportHeight < 1 {
+			detailViewportHeight = 1
+		}
+		detailViewportWidth := m.detailWidth - 4 // Account for padding
+		if detailViewportWidth < 10 {
+			detailViewportWidth = 10
+		}
+
+		if !m.viewportReady {
+			m.listView = viewport.New(listViewportWidth, listViewportHeight)
+			m.listView.Style = lipgloss.NewStyle()
+			m.detailView = viewport.New(detailViewportWidth, detailViewportHeight)
+			m.detailView.Style = lipgloss.NewStyle()
+			m.viewportReady = true
+		} else {
+			m.listView.Width = listViewportWidth
+			m.listView.Height = listViewportHeight
+			m.detailView.Width = detailViewportWidth
+			m.detailView.Height = detailViewportHeight
+		}
+		m.updateListContent()
+		m.updateDetailContent()
+		return m, nil
+
+	case eventsLoadedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.events = msg.events
+			m.selectedIdx = 0
+			m.updateListContent()
+			m.updateDetailContent()
+			if m.viewportReady {
+				m.listView.GotoTop()
+			}
+		}
+		return m, nil
+
+	case tickMsg:
+		// Refresh the view every minute for countdown updates
+		m.updateListContent()
+		m.updateDetailContent()
+		return m, tickCmd()
+
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			return m, tea.Quit
+
+		case key.Matches(msg, m.keys.Up):
+			if m.selectedIdx > 0 {
+				m.selectedIdx--
+				m.updateListContent()
+				m.scrollListToSelection()
+				m.updateDetailContent()
+				m.detailView.GotoTop()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.Down):
+			if m.selectedIdx < len(m.events)-1 {
+				m.selectedIdx++
+				m.updateListContent()
+				m.scrollListToSelection()
+				m.updateDetailContent()
+				m.detailView.GotoTop()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.ScrollUp):
+			if m.compactMode && m.focusedPanel == FocusList {
+				m.listView.ViewUp()
+			} else {
+				m.detailView.ViewUp()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.ScrollDown):
+			if m.compactMode && m.focusedPanel == FocusList {
+				m.listView.ViewDown()
+			} else {
+				m.detailView.ViewDown()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.NextDay):
+			if m.compactMode {
+				// In compact mode, right arrow switches to detail panel
+				m.focusedPanel = FocusDetail
+			} else {
+				m.currentDate = m.currentDate.AddDate(0, 0, 1)
+				m.loading = true
+				return m, m.loadEvents()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.PrevDay):
+			if m.compactMode {
+				// In compact mode, left arrow switches to list panel
+				m.focusedPanel = FocusList
+			} else {
+				m.currentDate = m.currentDate.AddDate(0, 0, -1)
+				m.loading = true
+				return m, m.loadEvents()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.Today):
+			m.currentDate = time.Now()
+			m.loading = true
+			return m, m.loadEvents()
+
+		case key.Matches(msg, m.keys.Tab):
+			// Toggle between panels (works in any mode, but most useful in compact)
+			if m.focusedPanel == FocusList {
+				m.focusedPanel = FocusDetail
+			} else {
+				m.focusedPanel = FocusList
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.ForwardDay):
+			// Always moves to next day (works in compact mode too)
+			m.currentDate = m.currentDate.AddDate(0, 0, 1)
+			m.loading = true
+			return m, m.loadEvents()
+
+		case key.Matches(msg, m.keys.BackDay):
+			// Always moves to previous day (works in compact mode too)
+			m.currentDate = m.currentDate.AddDate(0, 0, -1)
+			m.loading = true
+			return m, m.loadEvents()
+
+		case key.Matches(msg, m.keys.Refresh):
+			m.loading = true
+			return m, m.loadEvents()
+
+		case key.Matches(msg, m.keys.Open):
+			if len(m.events) > 0 && m.selectedIdx < len(m.events) {
+				event := m.events[m.selectedIdx]
+				if event.MeetingLink != "" {
+					// Open meeting link in browser
+					return m, openURL(event.MeetingLink)
+				}
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// View renders the TUI
+func (m Model) View() string {
+	if m.width == 0 {
+		return "Loading..."
+	}
+
+	// Header
+	header := m.renderHeader()
+
+	// Main content
+	var content string
+	if m.loading {
+		content = lipgloss.NewStyle().
+			Width(m.width-4).
+			Height(m.contentHeight).
+			Align(lipgloss.Center, lipgloss.Center).
+			Render("Loading events...")
+	} else if m.err != nil {
+		content = lipgloss.NewStyle().
+			Width(m.width - 4).
+			Height(m.contentHeight).
+			Foreground(errorColor).
+			Render(fmt.Sprintf("Error: %v", m.err))
+	} else if m.compactMode {
+		// Single panel mode - show only the focused panel
+		if m.focusedPanel == FocusList {
+			content = m.renderListPanel()
+		} else {
+			content = m.renderDetailPanel()
+		}
+	} else {
+		// Side-by-side mode
+		listPanel := m.renderListPanel()
+		detailPanel := m.renderDetailPanel()
+		content = lipgloss.JoinHorizontal(lipgloss.Top, listPanel, " ", detailPanel)
+	}
+
+	// Help bar
+	help := m.renderHelp()
+
+	return AppStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, content, help),
+	)
+}
+
+func (m Model) renderHeader() string {
+	dateStr := m.currentDate.Format("Monday, January 2, 2006")
+
+	// Check if it's today
+	now := time.Now()
+	isToday := m.currentDate.Year() == now.Year() &&
+		m.currentDate.Month() == now.Month() &&
+		m.currentDate.Day() == now.Day()
+
+	if isToday {
+		dateStr = "Today • " + dateStr
+	}
+
+	title := HeaderStyle.Render("📅 tsk")
+	date := lipgloss.NewStyle().Foreground(mutedColor).Render(dateStr)
+
+	// In compact mode, show which panel is focused
+	panelIndicator := ""
+	if m.compactMode {
+		if m.focusedPanel == FocusList {
+			panelIndicator = lipgloss.NewStyle().
+				Foreground(primaryColor).
+				Bold(true).
+				Render(" [Events]")
+		} else {
+			panelIndicator = lipgloss.NewStyle().
+				Foreground(primaryColor).
+				Bold(true).
+				Render(" [Details]")
+		}
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", date, panelIndicator)
+}
+
+// updateListContent updates the list viewport with current events
+func (m *Model) updateListContent() {
+	if !m.viewportReady {
+		return
+	}
+
+	var items []string
+	if len(m.events) == 0 {
+		items = append(items, NormalItemStyle.Render("No events"))
+	} else {
+		now := time.Now()
+		isToday := m.currentDate.Year() == now.Year() &&
+			m.currentDate.Month() == now.Month() &&
+			m.currentDate.Day() == now.Day()
+
+		nowLineAdded := false
+
+		for i, event := range m.events {
+			// Add "NOW" divider before the first future event (by start time)
+			// For timed events: show NOW before events starting after now
+			// Skip all-day events for NOW placement (they span the whole day)
+			if isToday && !nowLineAdded && !event.IsAllDay && event.Start.After(now) {
+				nowLine := m.renderNowDivider()
+				items = append(items, nowLine)
+				nowLineAdded = true
+			}
+
+			item := m.renderListItem(event, i == m.selectedIdx, m.listView.Width)
+			items = append(items, item)
+		}
+
+		// If all timed events have started (or only all-day events), show NOW at the end
+		if isToday && !nowLineAdded {
+			// Check if there are any timed events that have ended
+			hasEndedEvents := false
+			for _, event := range m.events {
+				if !event.IsAllDay && event.End.Before(now) {
+					hasEndedEvents = true
+					break
+				}
+			}
+			if hasEndedEvents || len(m.events) > 0 {
+				nowLine := m.renderNowDivider()
+				items = append(items, nowLine)
+			}
+		}
+	}
+
+	content := strings.Join(items, "\n")
+	m.listView.SetContent(content)
+}
+
+// renderNowDivider creates the "now" time indicator line
+func (m Model) renderNowDivider() string {
+	now := time.Now()
+	timeStr := now.Format("3:04 PM")
+
+	// Create a centered NOW indicator
+	width := m.listView.Width
+	nowText := fmt.Sprintf(" ▶ NOW %s ◀ ", timeStr)
+
+	// Calculate padding for centering
+	textLen := len(nowText)
+	leftPad := (width - textLen) / 2
+	rightPad := width - textLen - leftPad
+
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	if rightPad < 0 {
+		rightPad = 0
+	}
+
+	line := strings.Repeat("─", leftPad) + nowText + strings.Repeat("─", rightPad)
+
+	return lipgloss.NewStyle().
+		Foreground(accentColor).
+		Bold(true).
+		Render(line)
+}
+
+// scrollListToSelection scrolls the list viewport to keep the selected item visible
+func (m *Model) scrollListToSelection() {
+	if !m.viewportReady || len(m.events) == 0 {
+		return
+	}
+
+	now := time.Now()
+	isToday := m.currentDate.Year() == now.Year() &&
+		m.currentDate.Month() == now.Month() &&
+		m.currentDate.Day() == now.Day()
+
+	// Calculate actual line position, accounting for NOW divider
+	itemHeight := 1
+	lineOffset := 0
+
+	// Check if NOW divider exists and where it is
+	if isToday {
+		nowDividerIdx := -1
+		for i, event := range m.events {
+			// NOW divider appears before first future timed event
+			if !event.IsAllDay && event.Start.After(now) {
+				nowDividerIdx = i
+				break
+			}
+		}
+		// If no future event found, NOW is at the end
+		if nowDividerIdx == -1 {
+			nowDividerIdx = len(m.events)
+		}
+		// If selected item is at or after the NOW divider position, add 1 to offset
+		if m.selectedIdx >= nowDividerIdx {
+			lineOffset = 1
+		}
+	}
+
+	selectedTop := (m.selectedIdx + lineOffset) * itemHeight
+	selectedBottom := selectedTop + itemHeight
+
+	viewTop := m.listView.YOffset
+	viewBottom := viewTop + m.listView.Height
+
+	// Scroll up if selected item is above viewport
+	if selectedTop < viewTop {
+		m.listView.SetYOffset(selectedTop)
+	}
+	// Scroll down if selected item is below viewport
+	if selectedBottom > viewBottom {
+		m.listView.SetYOffset(selectedBottom - m.listView.Height)
+	}
+}
+
+func (m Model) renderListPanel() string {
+	if len(m.events) == 0 {
+		return ListPanelStyle.Width(m.listWidth).Height(m.contentHeight).Render(
+			lipgloss.NewStyle().
+				Foreground(mutedColor).
+				Render("No events"),
+		)
+	}
+
+	// Add scroll indicator if list is scrollable
+	scrollInfo := ""
+	if m.viewportReady && m.listView.TotalLineCount() > m.listView.Height {
+		scrollInfo = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render(fmt.Sprintf(" (%d/%d)", m.selectedIdx+1, len(m.events)))
+	}
+
+	header := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		Render("Events") + scrollInfo
+
+	content := m.listView.View()
+
+	return ListPanelStyle.Width(m.listWidth).Height(m.contentHeight).Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, content),
+	)
+}
+
+func (m Model) renderListItem(event core.Event, selected bool, maxWidth int) string {
+	now := time.Now()
+	isPast := event.End.Before(now)
+	isInProgress := event.InProgress(now)
+
+	// Time - add prefix for past events
+	timeStr := event.Start.Format("3:04 PM")
+	if event.IsAllDay {
+		timeStr = "All day"
+	}
+	if isPast {
+		timeStr = "✓ " + timeStr
+	}
+
+	var timeStyled string
+	if isPast {
+		timeStyled = PastTimeStyle.Render(timeStr)
+	} else {
+		timeStyled = TimeStyle.Render(timeStr)
+	}
+
+	// Duration
+	dur := event.End.Sub(event.Start)
+	durStr := formatDuration(dur)
+	duration := DurationStyle.Render(durStr)
+
+	// Calculate available width for title
+	// Time (12) + Duration (6) + icons (~6) + spaces (~3)
+	titleWidth := maxWidth - 27
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+
+	// Title (truncate if needed)
+	title := event.Title
+	if len(title) > titleWidth {
+		title = title[:titleWidth-3] + "..."
+	}
+
+	// Status indicator (only for in-progress, past events get checkmark in time)
+	statusIcon := ""
+	if isInProgress {
+		statusIcon = " 🟢"
+	}
+
+	// Meeting link indicator
+	meetingIcon := ""
+	if event.MeetingLink != "" {
+		meetingIcon = " 📹"
+	}
+
+	line := fmt.Sprintf("%s %s %s%s%s", timeStyled, duration, title, meetingIcon, statusIcon)
+
+	// Apply appropriate style based on state
+	if selected {
+		if isPast {
+			return SelectedPastStyle.Render(line)
+		}
+		return SelectedItemStyle.Render(line)
+	}
+	if isPast {
+		return PastItemStyle.Render(line)
+	}
+	return NormalItemStyle.Render(line)
+}
+
+// updateDetailContent updates the viewport with the current event details
+func (m *Model) updateDetailContent() {
+	if len(m.events) == 0 || !m.viewportReady {
+		return
+	}
+
+	event := m.events[m.selectedIdx]
+	width := m.detailView.Width
+	var lines []string
+
+	// Title
+	lines = append(lines, TitleStyle.Render(event.Title))
+	lines = append(lines, "")
+
+	// Calendar
+	if event.Calendar.Name != "" {
+		lines = append(lines, renderField("📅 Calendar", event.Calendar.Name))
+	}
+
+	// Time
+	timeStr := formatEventTime(event.Start, event.End, event.IsAllDay)
+	lines = append(lines, renderField("🕐 When", timeStr))
+
+	// Duration
+	if !event.IsAllDay {
+		dur := event.End.Sub(event.Start)
+		lines = append(lines, renderField("⏱️  Duration", formatDuration(dur)))
+	}
+
+	// Status: Past / In Progress / Upcoming
+	now := time.Now()
+	if event.End.Before(now) {
+		// Event has passed
+		ago := now.Sub(event.End)
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Italic(true).
+			Render(fmt.Sprintf("✓ Ended %s ago", formatDuration(ago))))
+	} else if event.InProgress(now) {
+		remaining := event.End.Sub(now)
+		lines = append(lines, "")
+		lines = append(lines, InProgressStyle.Render(fmt.Sprintf("🟢 IN PROGRESS • %s remaining", formatDuration(remaining))))
+	} else if event.Start.After(now) {
+		until := event.Start.Sub(now)
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Foreground(accentColor).Render(fmt.Sprintf("⏳ Starts in %s", formatDuration(until))))
+	}
+
+	lines = append(lines, "")
+
+	// Location
+	if event.Location != "" {
+		lines = append(lines, renderField("📍 Location", event.Location))
+	}
+
+	// Meeting link
+	if event.MeetingLink != "" {
+		lines = append(lines, renderField("📹 Join", LinkStyle.Render(event.MeetingLink)))
+	}
+
+	// Status
+	lines = append(lines, renderField("📊 Response", formatStatus(event.Status)))
+
+	// Description (no truncation now - it's scrollable!)
+	if event.Description != "" {
+		lines = append(lines, "")
+		lines = append(lines, LabelStyle.Render("📝 Description"))
+		// Word wrap description
+		wrapped := wordWrap(event.Description, width-4)
+		lines = append(lines, ValueStyle.Render(wrapped))
+	}
+
+	// Attachments
+	if len(event.Attachments) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, LabelStyle.Render("📎 Attachments"))
+		for _, att := range event.Attachments {
+			lines = append(lines, fmt.Sprintf("   • %s", att.Name))
+			if att.URL != "" {
+				lines = append(lines, fmt.Sprintf("     %s", LinkStyle.Render(att.URL)))
+			}
+		}
+	}
+
+	content := strings.Join(lines, "\n")
+	m.detailView.SetContent(content)
+}
+
+func (m Model) renderDetailPanel() string {
+	if len(m.events) == 0 {
+		return DetailPanelStyle.Width(m.detailWidth).Height(m.contentHeight).Render(
+			lipgloss.NewStyle().
+				Foreground(mutedColor).
+				Render("No event selected"),
+		)
+	}
+
+	// Add scroll indicator if content is scrollable
+	scrollInfo := ""
+	if m.viewportReady && m.detailView.TotalLineCount() > m.detailView.Height {
+		scrollPct := int(m.detailView.ScrollPercent() * 100)
+		scrollInfo = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render(fmt.Sprintf(" (%d%%)", scrollPct))
+	}
+
+	header := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		Render("Event Details") + scrollInfo
+
+	content := m.detailView.View()
+
+	return DetailPanelStyle.Width(m.detailWidth).Height(m.contentHeight).Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, "", content),
+	)
+}
+
+func (m Model) renderHelp() string {
+	var keys []string
+
+	if m.compactMode {
+		// Compact mode help
+		keys = []string{
+			HelpKeyStyle.Render("↑/↓") + " nav",
+			HelpKeyStyle.Render("←/→") + " switch",
+			HelpKeyStyle.Render("tab") + " toggle",
+			HelpKeyStyle.Render("n/p") + " day",
+			HelpKeyStyle.Render("t") + " today",
+			HelpKeyStyle.Render("o") + " open",
+			HelpKeyStyle.Render("q") + " quit",
+		}
+	} else {
+		// Full mode help
+		keys = []string{
+			HelpKeyStyle.Render("↑/k") + " up",
+			HelpKeyStyle.Render("↓/j") + " down",
+			HelpKeyStyle.Render("ctrl+u/d") + " scroll",
+			HelpKeyStyle.Render("←/h") + " prev day",
+			HelpKeyStyle.Render("→/l") + " next day",
+			HelpKeyStyle.Render("t") + " today",
+			HelpKeyStyle.Render("o") + " open link",
+			HelpKeyStyle.Render("r") + " refresh",
+			HelpKeyStyle.Render("q") + " quit",
+		}
+	}
+	return HelpStyle.Render(strings.Join(keys, "  •  "))
+}
+
+// Helper functions
+func renderField(label, value string) string {
+	return LabelStyle.Render(label) + " " + ValueStyle.Render(value)
+}
+
+func formatDuration(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+
+	if hours > 0 {
+		if minutes > 0 {
+			return fmt.Sprintf("%dh %dm", hours, minutes)
+		}
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
+func formatEventTime(start, end time.Time, isAllDay bool) string {
+	if isAllDay {
+		return start.Format("Mon, Jan 2") + " (all day)"
+	}
+	if start.Day() == end.Day() {
+		return fmt.Sprintf("%s, %s - %s",
+			start.Format("Mon, Jan 2"),
+			start.Format("3:04 PM"),
+			end.Format("3:04 PM"))
+	}
+	return fmt.Sprintf("%s - %s",
+		start.Format("Mon, Jan 2 3:04 PM"),
+		end.Format("Mon, Jan 2 3:04 PM"))
+}
+
+func formatStatus(status core.EventStatus) string {
+	switch status {
+	case core.StatusAccepted:
+		return StatusAcceptedStyle.Render("Accepted ✓")
+	case core.StatusRejected:
+		return StatusDeclinedStyle.Render("Declined ✗")
+	case core.StatusTentative:
+		return StatusPendingStyle.Render("Tentative ?")
+	case core.StatusAwaiting:
+		return StatusPendingStyle.Render("Awaiting response")
+	case core.StatusNoResponse:
+		return lipgloss.NewStyle().Foreground(mutedColor).Render("No response needed")
+	default:
+		return "Unknown"
+	}
+}
+
+func wordWrap(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	var result strings.Builder
+	words := strings.Fields(s)
+	lineLen := 0
+
+	for i, word := range words {
+		if lineLen+len(word)+1 > width && lineLen > 0 {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+		if i > 0 && lineLen > 0 {
+			result.WriteString(" ")
+			lineLen++
+		}
+		result.WriteString(word)
+		lineLen += len(word)
+	}
+	return result.String()
+}
+
+// openURL opens a URL in the default browser
+func openURL(url string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", url)
+		case "linux":
+			cmd = exec.Command("xdg-open", url)
+		case "windows":
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		default:
+			return nil
+		}
+		_ = cmd.Start()
+		return nil
+	}
+}

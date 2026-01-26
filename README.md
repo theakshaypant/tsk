@@ -34,6 +34,9 @@ tsk next
 # Just the next 3 days
 tsk --days 3
 
+# This week
+tsk --from monday --to friday
+
 # Hide the OOO noise
 tsk --ooo=false
 
@@ -43,6 +46,24 @@ tsk --smart-ooo
 # What calendars do I even have?
 tsk calendars
 ```
+
+## Interactive Mode
+
+For when you want to actually browse your calendar like a normal person:
+
+```bash
+tsk ui
+```
+
+This gives you a proper TUI with:
+- Event list on the left, details on the right
+- Navigate with arrow keys or vim bindings (`j/k`, `h/l`)
+- Jump between days, see what's coming up
+- Open meeting links directly (`o` or Enter)
+- A "NOW" marker so you know where you are in your day
+- Past events dimmed out so you can focus on what's ahead
+
+![UI Screenshot](assets/tsk_ui.png)
 
 ## Profiles
 
