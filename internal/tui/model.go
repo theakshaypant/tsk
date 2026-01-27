@@ -651,8 +651,9 @@ func (m Model) renderListItem(event core.Event, selected bool, maxWidth int) str
 	isPast := event.End.Before(now)
 	isInProgress := event.InProgress(now)
 
-	// Time - add prefix for past events
-	timeStr := event.Start.Format("3:04 PM")
+	// Time - convert to local timezone for display
+	localStart := event.Start.Local()
+	timeStr := localStart.Format("3:04 PM")
 	if event.IsAllDay {
 		timeStr = "All day"
 	}
@@ -871,9 +872,17 @@ func formatDuration(d time.Duration) string {
 	if d < 0 {
 		d = -d
 	}
-	hours := int(d.Hours())
+
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
 	minutes := int(d.Minutes()) % 60
 
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dd %dh", days, hours)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
 	if hours > 0 {
 		if minutes > 0 {
 			return fmt.Sprintf("%dh %dm", hours, minutes)
@@ -884,18 +893,22 @@ func formatDuration(d time.Duration) string {
 }
 
 func formatEventTime(start, end time.Time, isAllDay bool) string {
+	// Convert to local timezone for display
+	localStart := start.Local()
+	localEnd := end.Local()
+
 	if isAllDay {
-		return start.Format("Mon, Jan 2") + " (all day)"
+		return localStart.Format("Mon, Jan 2") + " (all day)"
 	}
-	if start.Day() == end.Day() {
+	if localStart.Day() == localEnd.Day() {
 		return fmt.Sprintf("%s, %s - %s",
-			start.Format("Mon, Jan 2"),
-			start.Format("3:04 PM"),
-			end.Format("3:04 PM"))
+			localStart.Format("Mon, Jan 2"),
+			localStart.Format("3:04 PM"),
+			localEnd.Format("3:04 PM"))
 	}
 	return fmt.Sprintf("%s - %s",
-		start.Format("Mon, Jan 2 3:04 PM"),
-		end.Format("Mon, Jan 2 3:04 PM"))
+		localStart.Format("Mon, Jan 2 3:04 PM"),
+		localEnd.Format("Mon, Jan 2 3:04 PM"))
 }
 
 func formatStatus(status core.EventStatus) string {

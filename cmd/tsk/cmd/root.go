@@ -587,17 +587,21 @@ func formatDurationCompact(d time.Duration) string {
 }
 
 func formatEventTime(start, end time.Time, isAllDay bool) string {
+	// Convert to local timezone for display
+	localStart := start.Local()
+	localEnd := end.Local()
+
 	if isAllDay {
-		if start.Day() == end.Day() || end.Sub(start) <= 24*time.Hour {
-			return start.Format("Mon, Jan 2") + " (all day)"
+		if localStart.Day() == localEnd.Day() || end.Sub(start) <= 24*time.Hour {
+			return localStart.Format("Mon, Jan 2") + " (all day)"
 		}
-		return fmt.Sprintf("%s - %s (all day)", start.Format("Mon, Jan 2"), end.Add(-24*time.Hour).Format("Mon, Jan 2"))
+		return fmt.Sprintf("%s - %s (all day)", localStart.Format("Mon, Jan 2"), localEnd.Add(-24*time.Hour).Format("Mon, Jan 2"))
 	}
 
-	if start.Day() == end.Day() {
-		return fmt.Sprintf("%s, %s - %s", start.Format("Mon, Jan 2"), start.Format("3:04 PM"), end.Format("3:04 PM"))
+	if localStart.Day() == localEnd.Day() {
+		return fmt.Sprintf("%s, %s - %s", localStart.Format("Mon, Jan 2"), localStart.Format("3:04 PM"), localEnd.Format("3:04 PM"))
 	}
-	return fmt.Sprintf("%s - %s", start.Format("Mon, Jan 2 3:04 PM"), end.Format("Mon, Jan 2 3:04 PM"))
+	return fmt.Sprintf("%s - %s", localStart.Format("Mon, Jan 2 3:04 PM"), localEnd.Format("Mon, Jan 2 3:04 PM"))
 }
 
 func formatStatus(status core.EventStatus) string {
