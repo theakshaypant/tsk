@@ -130,10 +130,50 @@ func (g *GoogleAdapter) FetchEvents(ctx context.Context, opts core.FetchOptions)
 		results = append(results, events...)
 	}
 
+	results = deduplicateEvents(results)
+
 	// Sort by start time
 	sortEventsByStartTime(results)
 
 	return results, nil
+}
+
+// deduplicateEvents merges events that share the same DedupeKey (ICalUID).
+// The first occurrence becomes the primary; subsequent occurrences add their
+// calendar and status to the Calendars slice.
+func deduplicateEvents(events []core.Event) []core.Event {
+	seen := make(map[string]int) // DedupeKey -> index in result
+	var result []core.Event
+
+	for _, event := range events {
+		if event.DedupeKey == "" {
+			// No dedup key — keep as-is
+			result = append(result, event)
+			continue
+		}
+
+		if idx, exists := seen[event.DedupeKey]; exists {
+			// Duplicate — merge calendar info into the existing event
+			result[idx].Calendars = append(result[idx].Calendars, core.CalendarResponse{
+				Calendar: event.Calendar,
+				Status:   event.Status,
+				URL:      event.URL,
+			})
+		} else {
+			// First occurrence — initialize Calendars with this event's own info
+			event.Calendars = []core.CalendarResponse{
+				{
+					Calendar: event.Calendar,
+					Status:   event.Status,
+					URL:      event.URL,
+				},
+			}
+			seen[event.DedupeKey] = len(result)
+			result = append(result, event)
+		}
+	}
+
+	return result
 }
 
 func (g *GoogleAdapter) fetchEventsFromCalendar(ctx context.Context, calendarID string, opts core.FetchOptions) ([]core.Event, error) {
@@ -278,6 +318,7 @@ func (g *GoogleAdapter) parseEvent(item *calendar.Event, calendarID, calendarNam
 	// Build unified Event
 	return core.Event{
 		ID:         item.Id,
+		DedupeKey:  item.ICalUID,
 		ProviderID: g.ID(),
 		Calendar: core.Calendar{
 			ID:   calendarID,

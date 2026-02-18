@@ -450,7 +450,15 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 	}
 
 	if opts.ShowCalendar {
-		fmt.Printf("%s📅 Calendar:    %s\n", indent, event.Calendar.Name)
+		if len(event.Calendars) > 1 {
+			var calNames []string
+			for _, cr := range event.Calendars {
+				calNames = append(calNames, cr.Calendar.Name)
+			}
+			fmt.Printf("%s📅 Calendars:   %s\n", indent, strings.Join(calNames, ", "))
+		} else {
+			fmt.Printf("%s📅 Calendar:    %s\n", indent, event.Calendar.Name)
+		}
 	}
 
 	if opts.ShowTime {
@@ -480,7 +488,14 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 	}
 
 	if opts.ShowStatus {
-		fmt.Printf("%s📊 Response:    %s\n", indent, formatStatus(event.Status))
+		if len(event.Calendars) > 1 {
+			fmt.Printf("%s📊 Responses:\n", indent)
+			for _, cr := range event.Calendars {
+				fmt.Printf("%s   %s: %s\n", indent, cr.Calendar.Name, formatStatus(cr.Status))
+			}
+		} else {
+			fmt.Printf("%s📊 Response:    %s\n", indent, formatStatus(event.Status))
+		}
 	}
 
 	if opts.ShowEventURL && event.URL != "" {

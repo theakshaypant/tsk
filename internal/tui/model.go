@@ -803,8 +803,14 @@ func (m *Model) updateDetailContent() {
 	lines = append(lines, TitleStyle.Render(event.Title))
 	lines = append(lines, "")
 
-	// Calendar
-	if event.Calendar.Name != "" {
+	// Calendar(s)
+	if len(event.Calendars) > 1 {
+		var calNames []string
+		for _, cr := range event.Calendars {
+			calNames = append(calNames, cr.Calendar.Name)
+		}
+		lines = append(lines, renderField("📅 Calendars", strings.Join(calNames, ", ")))
+	} else if event.Calendar.Name != "" {
 		lines = append(lines, renderField("📅 Calendar", event.Calendar.Name))
 	}
 
@@ -853,8 +859,15 @@ func (m *Model) updateDetailContent() {
 		lines = append(lines, renderField("📹 Join", linkText))
 	}
 
-	// Status
-	lines = append(lines, renderField("📊 Response", formatStatus(event.Status)))
+	// Response(s)
+	if len(event.Calendars) > 1 {
+		lines = append(lines, LabelStyle.Render("📊 Responses"))
+		for _, cr := range event.Calendars {
+			lines = append(lines, fmt.Sprintf("   %s: %s", ValueStyle.Render(cr.Calendar.Name), formatStatus(cr.Status)))
+		}
+	} else {
+		lines = append(lines, renderField("📊 Response", formatStatus(event.Status)))
+	}
 
 	// Description (no truncation now - it's scrollable!)
 	if event.Description != "" {

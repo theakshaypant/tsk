@@ -37,6 +37,14 @@ type Calendar struct {
 	Name string
 }
 
+// CalendarResponse tracks a calendar and the user's response status in it.
+// Used when the same event appears in multiple shared calendars.
+type CalendarResponse struct {
+	Calendar Calendar
+	Status   EventStatus
+	URL      string // Calendar-specific event page URL
+}
+
 // Attachment represents a file linked to an event.
 // Only store the link, we do not download the content.
 type Attachment struct {
@@ -53,10 +61,15 @@ type Attachment struct {
 type Event struct {
 	// Unique ID (provided by the source)
 	ID string
+	// Universal identifier for deduplication across calendars (e.g., ICalUID)
+	DedupeKey string
 	// The ID of the provider source (e.g., "personal_google")
 	ProviderID string
-	// Which calendar this event belongs to
+	// Which calendar this event belongs to (primary — first seen)
 	Calendar Calendar
+	// All calendars this event appears in, with per-calendar status and URL.
+	// Populated after deduplication. Empty means single-calendar event.
+	Calendars []CalendarResponse
 	// Type of calendar entry
 	Type EventType
 	// Details
