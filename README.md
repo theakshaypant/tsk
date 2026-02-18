@@ -103,9 +103,7 @@ Still early days. More providers coming eventually. Maybe Outlook. Maybe iCloud.
 
 
 <!-- TODO:
-1. Add option to view event.
-2. Respond to events
-3. Create new events
-4. Rename "open link" to start meeting or something
-5. Duplicate events in shared calendar, view them as a single event with calendars listed? and show the responses for each of the calendars
+1. Respond to events
+2. Create new events
+3. Duplicate events in shared calendar, view them as a single event with calendars listed? and show the responses for each of the calendars
 -->

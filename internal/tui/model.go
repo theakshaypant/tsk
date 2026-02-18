@@ -23,25 +23,24 @@ type KeyMap struct {
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
 	Open       key.Binding
+	ViewEvent  key.Binding
 	Refresh    key.Binding
 	NextDay    key.Binding
 	PrevDay    key.Binding
 	Today      key.Binding
 	Tab        key.Binding
-	ForwardDay key.Binding
-	BackDay    key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 }
 
 var DefaultKeyMap = KeyMap{
 	Up: key.NewBinding(
-		key.WithKeys("up", "k"),
-		key.WithHelp("↑/k", "up"),
+		key.WithKeys("up"),
+		key.WithHelp("↑", "up"),
 	),
 	Down: key.NewBinding(
-		key.WithKeys("down", "j"),
-		key.WithHelp("↓/j", "down"),
+		key.WithKeys("down"),
+		key.WithHelp("↓", "down"),
 	),
 	ScrollUp: key.NewBinding(
 		key.WithKeys("ctrl+u", "pgup"),
@@ -52,20 +51,24 @@ var DefaultKeyMap = KeyMap{
 		key.WithHelp("ctrl+d", "scroll down"),
 	),
 	Open: key.NewBinding(
-		key.WithKeys("enter", "o"),
-		key.WithHelp("enter/o", "open link"),
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "start meeting"),
+	),
+	ViewEvent: key.NewBinding(
+		key.WithKeys("v"),
+		key.WithHelp("v", "view event"),
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "refresh"),
 	),
 	NextDay: key.NewBinding(
-		key.WithKeys("l", "right"),
-		key.WithHelp("→/l", "next day"),
+		key.WithKeys("right"),
+		key.WithHelp("→", "next day"),
 	),
 	PrevDay: key.NewBinding(
-		key.WithKeys("h", "left"),
-		key.WithHelp("←/h", "prev day"),
+		key.WithKeys("left"),
+		key.WithHelp("←", "prev day"),
 	),
 	Today: key.NewBinding(
 		key.WithKeys("t"),
@@ -74,14 +77,6 @@ var DefaultKeyMap = KeyMap{
 	Tab: key.NewBinding(
 		key.WithKeys("tab"),
 		key.WithHelp("tab", "switch panel"),
-	),
-	ForwardDay: key.NewBinding(
-		key.WithKeys("n", "]"),
-		key.WithHelp("n/]", "next day"),
-	),
-	BackDay: key.NewBinding(
-		key.WithKeys("p", "["),
-		key.WithHelp("p/[", "prev day"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
@@ -418,26 +413,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.NextDay):
-			if m.compactMode {
-				// In compact mode, right arrow switches to detail panel
-				m.focusedPanel = FocusDetail
-			} else {
-				m.currentDate = m.currentDate.AddDate(0, 0, 1)
-				m.loading = true
-				return m, m.loadEvents()
-			}
-			return m, nil
+			m.currentDate = m.currentDate.AddDate(0, 0, 1)
+			m.loading = true
+			return m, m.loadEvents()
 
 		case key.Matches(msg, m.keys.PrevDay):
-			if m.compactMode {
-				// In compact mode, left arrow switches to list panel
-				m.focusedPanel = FocusList
-			} else {
-				m.currentDate = m.currentDate.AddDate(0, 0, -1)
-				m.loading = true
-				return m, m.loadEvents()
-			}
-			return m, nil
+			m.currentDate = m.currentDate.AddDate(0, 0, -1)
+			m.loading = true
+			return m, m.loadEvents()
 
 		case key.Matches(msg, m.keys.Today):
 			now := time.Now()
@@ -465,18 +448,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, m.keys.ForwardDay):
-			// Always moves to next day (works in compact mode too)
-			m.currentDate = m.currentDate.AddDate(0, 0, 1)
-			m.loading = true
-			return m, m.loadEvents()
-
-		case key.Matches(msg, m.keys.BackDay):
-			// Always moves to previous day (works in compact mode too)
-			m.currentDate = m.currentDate.AddDate(0, 0, -1)
-			m.loading = true
-			return m, m.loadEvents()
-
 		case key.Matches(msg, m.keys.Refresh):
 			m.loading = true
 			return m, m.loadEvents()
@@ -485,8 +456,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.events) > 0 && m.selectedIdx < len(m.events) {
 				event := m.events[m.selectedIdx]
 				if event.MeetingLink != "" {
-					// Open meeting link in browser
 					return m, openURL(event.MeetingLink)
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.ViewEvent):
+			if len(m.events) > 0 && m.selectedIdx < len(m.events) {
+				event := m.events[m.selectedIdx]
+				if event.URL != "" {
+					return m, openURL(event.URL)
 				}
 			}
 			return m, nil
@@ -939,28 +918,15 @@ func (m Model) renderDetailPanel() string {
 func (m Model) renderHelp() string {
 	var keys []string
 
-	if m.compactMode {
-		keys = []string{
-			HelpKeyStyle.Render("↑/↓") + " nav",
-			HelpKeyStyle.Render("←/→") + " switch",
-			HelpKeyStyle.Render("tab") + " toggle",
-			HelpKeyStyle.Render("n/p") + " day",
-			HelpKeyStyle.Render("t") + " today",
-			HelpKeyStyle.Render("o") + " open",
-			HelpKeyStyle.Render("q") + " quit",
-		}
-	} else {
-		keys = []string{
-			HelpKeyStyle.Render("↑/k") + " up",
-			HelpKeyStyle.Render("↓/j") + " down",
-			HelpKeyStyle.Render("ctrl+u/d") + " scroll",
-			HelpKeyStyle.Render("←/h") + " prev day",
-			HelpKeyStyle.Render("→/l") + " next day",
-			HelpKeyStyle.Render("t") + " today",
-			HelpKeyStyle.Render("o") + " open link",
-			HelpKeyStyle.Render("r") + " refresh",
-			HelpKeyStyle.Render("q") + " quit",
-		}
+	keys = []string{
+		HelpKeyStyle.Render("↑/↓") + " nav",
+		HelpKeyStyle.Render("←/→") + " day",
+		HelpKeyStyle.Render("tab") + " panel",
+		HelpKeyStyle.Render("t") + " now",
+		HelpKeyStyle.Render("enter") + " meet",
+		HelpKeyStyle.Render("v") + " view",
+		HelpKeyStyle.Render("r") + " refresh",
+		HelpKeyStyle.Render("q") + " quit",
 	}
 
 	fullLine := strings.Join(keys, "  •  ")
@@ -986,16 +952,15 @@ func (m Model) renderHelpPanel() string {
 
 	lines := []string{
 		"",
-		HelpKeyStyle.Render("  ↑/k        ") + " Move up",
-		HelpKeyStyle.Render("  ↓/j        ") + " Move down",
+		HelpKeyStyle.Render("  ↑          ") + " Move up",
+		HelpKeyStyle.Render("  ↓          ") + " Move down",
 		HelpKeyStyle.Render("  ctrl+u/d   ") + " Scroll detail panel",
-		HelpKeyStyle.Render("  ←/h        ") + " Previous day",
-		HelpKeyStyle.Render("  →/l        ") + " Next day",
-		HelpKeyStyle.Render("  n / ]      ") + " Next day (always)",
-		HelpKeyStyle.Render("  p / [      ") + " Previous day (always)",
+		HelpKeyStyle.Render("  →          ") + " Next day",
+		HelpKeyStyle.Render("  ←          ") + " Previous day",
 		HelpKeyStyle.Render("  t          ") + " Jump to now / today",
 		HelpKeyStyle.Render("  tab        ") + " Switch panel",
-		HelpKeyStyle.Render("  o / enter  ") + " Open meeting link",
+		HelpKeyStyle.Render("  enter      ") + " Start meeting / open event",
+		HelpKeyStyle.Render("  v          ") + " View event in calendar",
 		HelpKeyStyle.Render("  r          ") + " Refresh events",
 		HelpKeyStyle.Render("  q / ctrl+c ") + " Quit",
 		"",
