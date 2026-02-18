@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -48,6 +49,13 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 func buildFetchOptions() core.FetchOptions {
 	opts := core.FetchOptions{}
+
+	// Calendar filter
+	if calendars := viper.GetString("calendars"); calendars != "" {
+		filterNames := strings.Split(calendars, ",")
+		calendarIDs := resolveCalendarNames(filterNames, adapter.Calendars())
+		opts.CalendarIDs = calendarIDs
+	}
 
 	// Event type filter
 	if viper.GetBool("all_types") {
