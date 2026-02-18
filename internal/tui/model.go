@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/theakshaypant/tsk/internal/core"
+	"github.com/theakshaypant/tsk/internal/util"
 )
 
 // KeyMap defines the keybindings for the TUI
@@ -771,7 +772,10 @@ func (m *Model) updateDetailContent() {
 
 	// Meeting link
 	if event.MeetingLink != "" {
-		lines = append(lines, renderField("📹 Join", LinkStyle.Render(event.MeetingLink)))
+		// Apply styling first, then create hyperlink
+		styledText := LinkStyle.Render(event.MeetingLink)
+		linkText := util.MakeHyperlink(event.MeetingLink, styledText)
+		lines = append(lines, renderField("📹 Join", linkText))
 	}
 
 	// Status
@@ -791,9 +795,13 @@ func (m *Model) updateDetailContent() {
 		lines = append(lines, "")
 		lines = append(lines, LabelStyle.Render("📎 Attachments"))
 		for _, att := range event.Attachments {
-			lines = append(lines, fmt.Sprintf("   • %s", att.Name))
 			if att.URL != "" {
-				lines = append(lines, fmt.Sprintf("     %s", LinkStyle.Render(att.URL)))
+				// Apply styling first, then create hyperlink
+				styledName := LinkStyle.Render(att.Name)
+				linkText := util.MakeHyperlink(att.URL, styledName)
+				lines = append(lines, fmt.Sprintf("   • %s", linkText))
+			} else {
+				lines = append(lines, fmt.Sprintf("   • %s", att.Name))
 			}
 		}
 	}

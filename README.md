@@ -105,13 +105,12 @@ Still early days. More providers coming eventually. Maybe Outlook. Maybe iCloud.
 <!-- TODO:
 1. Calendars not working in profile or flags, cannot remove "*** shared calendar" from the views
 2. Add option to view event.
-3. Make all URLs hyperlinks, docs link for example become "shortened" when the terminal width is les sthan the URL length.
-4. Too much scrolling in UI view, start with the NOW marker always
-5. Check hiding the all day events functionality
-6. Respond to events
-7. Create new events 
-8. Footer does not scale properly when terminal width is not enough
-9. Rename "open link" to start meeting or something
-10. Help for all shortcuts.
-11. Duplicate events in shared calendar, view them as a single event with calendars listed?
+3. Too much scrolling in UI view, start with the NOW marker always
+4. Check hiding the all day events functionality
+5. Respond to events
+6. Create new events
+7. Footer does not scale properly when terminal width is not enough
+8. Rename "open link" to start meeting or something
+9. Help for all shortcuts.
+10. Duplicate events in shared calendar, view them as a single event with calendars listed? and show the responses for each of the calendars
 -->

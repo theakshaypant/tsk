@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/theakshaypant/tsk/internal/adapter/google"
 	"github.com/theakshaypant/tsk/internal/core"
+	"github.com/theakshaypant/tsk/internal/util"
 )
 
 var (
@@ -461,7 +462,8 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 	}
 
 	if opts.ShowMeetLink && event.MeetingLink != "" {
-		fmt.Printf("%s📹 Join:        %s\n", indent, event.MeetingLink)
+		linkText := util.MakeHyperlink(event.MeetingLink, event.MeetingLink)
+		fmt.Printf("%s📹 Join:        %s\n", indent, linkText)
 	}
 
 	if opts.ShowDesc && event.Description != "" {
@@ -481,15 +483,19 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 	}
 
 	if opts.ShowEventURL && event.URL != "" {
-		fmt.Printf("%s🔗 Event:       %s\n", indent, event.URL)
+		linkText := util.MakeHyperlink(event.URL, event.URL)
+		fmt.Printf("%s🔗 Event:       %s\n", indent, linkText)
 	}
 
 	if opts.ShowAttach && len(event.Attachments) > 0 {
 		fmt.Printf("%s📎 Attachments:\n", indent)
 		for _, att := range event.Attachments {
-			fmt.Printf("%s   • %s\n", indent, att.Name)
 			if att.URL != "" {
-				fmt.Printf("%s     %s\n", indent, att.URL)
+				// Use hyperlink with attachment name as display text
+				linkText := util.MakeHyperlink(att.URL, att.Name)
+				fmt.Printf("%s   • %s\n", indent, linkText)
+			} else {
+				fmt.Printf("%s   • %s\n", indent, att.Name)
 			}
 		}
 	}
