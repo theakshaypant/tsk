@@ -104,12 +104,11 @@ Still early days. More providers coming eventually. Maybe Outlook. Maybe iCloud.
 
 <!-- TODO:
 1. Add option to view event.
-2. Too much scrolling in UI view, start with the NOW marker always
-3. Check hiding the all day events functionality
-4. Respond to events
-5. Create new events
-6. Footer does not scale properly when terminal width is not enough
-7. Rename "open link" to start meeting or something
-8. Help for all shortcuts.
-9. Duplicate events in shared calendar, view them as a single event with calendars listed? and show the responses for each of the calendars
+2. Check hiding the all day events functionality
+3. Respond to events
+4. Create new events
+5. Footer does not scale properly when terminal width is not enough
+6. Rename "open link" to start meeting or something
+7. Help for all shortcuts.
+8. Duplicate events in shared calendar, view them as a single event with calendars listed? and show the responses for each of the calendars
 -->

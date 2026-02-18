@@ -136,6 +136,74 @@ func NewModel(provider core.Provider, opts core.FetchOptions) Model {
 	}
 }
 
+// findNowEventIdx returns the index of the first upcoming event on today's view,
+// or 0 for other days. This is the event right after where the NOW marker appears.
+func (m *Model) findNowEventIdx() int {
+	if len(m.events) == 0 {
+		return 0
+	}
+
+	now := time.Now()
+	isToday := m.currentDate.Year() == now.Year() &&
+		m.currentDate.Month() == now.Month() &&
+		m.currentDate.Day() == now.Day()
+
+	if !isToday {
+		return 0
+	}
+
+	// Find the first future timed event (same logic as NOW marker placement)
+	for i, event := range m.events {
+		if !event.IsAllDay && event.Start.After(now) {
+			return i
+		}
+	}
+
+	// All events are past or in progress — select the last one
+	return len(m.events) - 1
+}
+
+// scrollToNow scrolls the list viewport so the NOW marker is visible.
+// It places the NOW marker near the top of the viewport.
+func (m *Model) scrollToNow() {
+	if !m.viewportReady || len(m.events) == 0 {
+		return
+	}
+
+	now := time.Now()
+	isToday := m.currentDate.Year() == now.Year() &&
+		m.currentDate.Month() == now.Month() &&
+		m.currentDate.Day() == now.Day()
+
+	if !isToday {
+		m.listView.GotoTop()
+		return
+	}
+
+	// Find the line position of the NOW divider
+	nowDividerLine := -1
+	linePos := 0
+	for _, event := range m.events {
+		if !event.IsAllDay && event.Start.After(now) {
+			nowDividerLine = linePos
+			break
+		}
+		linePos++ // each event is 1 line
+	}
+
+	// If no future event found, NOW is at the end
+	if nowDividerLine == -1 {
+		nowDividerLine = len(m.events)
+	}
+
+	// Scroll so the NOW marker is near the top (with a small offset for context)
+	offset := nowDividerLine - 2
+	if offset < 0 {
+		offset = 0
+	}
+	m.listView.SetYOffset(offset)
+}
+
 // Messages
 type eventsLoadedMsg struct {
 	events []core.Event
@@ -284,12 +352,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 		} else {
 			m.events = msg.events
-			m.selectedIdx = 0
+			m.selectedIdx = m.findNowEventIdx()
 			m.updateListContent()
 			m.updateDetailContent()
-			if m.viewportReady {
-				m.listView.GotoTop()
-			}
+			m.scrollToNow()
 		}
 		return m, nil
 
