@@ -2,6 +2,8 @@
 
 To allow the `tsk` CLI to fetch your events, you must create a Google Cloud Project and generate OAuth 2.0 credentials. This process produces the `credentials.json` file required by the adapter.
 
+> **tsk only needs read access.** It requests the `calendar.readonly` scope, it can look at your events but can't touch them. No surprise meetings will be created on your behalf.
+
 ### Phase 1: Create a Project
 
 1. Go to the **[Google Cloud Console](https://console.cloud.google.com/)**.

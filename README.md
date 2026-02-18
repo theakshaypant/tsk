@@ -8,6 +8,8 @@ A terminal calendar client for people who'd rather not deal with calendars.
 
 It's a CLI tool that pulls events from multiple calendar providers (starting with Google) and shows them in your terminal. Because sometimes you just want to see what's eating your day without opening a browser, signing into three accounts, and getting distracted by 47 unread emails.
 
+> **Look, don't touch.** tsk is *read-only*, it can see your calendar but can't create, modify, or delete anything. Your meetings are safe. (Whether that's a bug or a feature is up to you.)
+
 Works with your primary calendar, shared calendars, subscribed calendars (holidays, team schedules), and all those calendars you forgot you subscribed to.
 
 ## Google Calendar
