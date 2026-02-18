@@ -86,6 +86,11 @@ func buildFetchOptions() core.FetchOptions {
 		}
 	}
 
+	// All-day events filter
+	if viper.GetBool("no_allday") {
+		opts.ExcludeAllDay = true
+	}
+
 	return opts
 }
 

@@ -167,6 +167,13 @@ func (g *GoogleAdapter) fetchEventsFromCalendar(ctx context.Context, calendarID 
 		for _, item := range eventsResult.Items {
 			event := g.parseEvent(item, calendarID, calendarName)
 
+			// Treat timed events as all-day if they span the entire viewed day.
+			// These are multi-day spanning events that Google sends with
+			// DateTime instead of Date.
+			if !event.IsAllDay && !event.Start.After(opts.Start) && !event.End.Before(opts.End) {
+				event.IsAllDay = true
+			}
+
 			// Filter by event type
 			if len(opts.IncludeTypes) > 0 && !containsType(opts.IncludeTypes, event.Type) {
 				continue
@@ -174,6 +181,11 @@ func (g *GoogleAdapter) fetchEventsFromCalendar(ctx context.Context, calendarID 
 
 			// Filter by status
 			if len(opts.IncludeStatuses) > 0 && !containsStatus(opts.IncludeStatuses, event.Status) {
+				continue
+			}
+
+			// Filter out all-day events
+			if opts.ExcludeAllDay && event.IsAllDay {
 				continue
 			}
 

@@ -21,6 +21,9 @@ type FetchOptions struct {
 	// Filter by response status. Empty means all statuses.
 	// To show only accepted events, set to []EventStatus{StatusAccepted}.
 	IncludeStatuses []EventStatus
+
+	// ExcludeAllDay filters out all-day events when true.
+	ExcludeAllDay bool
 }
 
 // DefaultFetchOptions returns sensible defaults (regular events, all statuses).

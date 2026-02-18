@@ -164,10 +164,11 @@ func applyProfile() {
 		"display.in_progress",
 	}
 
-	// Override each setting if present in profile
+	// Override each setting if present in profile,
+	// but only if the user hasn't explicitly set it via CLI flag.
 	for _, key := range settings {
 		profileSettingKey := profileKey + "." + key
-		if viper.IsSet(profileSettingKey) {
+		if viper.IsSet(profileSettingKey) && !isFlagExplicitlySet(key) {
 			viper.Set(key, viper.Get(profileSettingKey))
 		}
 	}
@@ -179,6 +180,13 @@ func applyProfile() {
 			viper.Set(key, viper.Get(profileSettingKey))
 		}
 	}
+}
+
+func isFlagExplicitlySet(viperKey string) bool {
+	flagName := strings.ReplaceAll(viperKey, "_", "-")
+	f := rootCmd.PersistentFlags().Lookup(flagName)
+
+	return f != nil && f.Changed
 }
 
 func initAdapter(cmd *cobra.Command, args []string) error {
@@ -298,6 +306,11 @@ func listEvents(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// All-day events filter
+	if viper.GetBool("no_allday") {
+		opts.ExcludeAllDay = true
+	}
+
 	events, err := adapter.FetchEvents(cmd.Context(), opts)
 	if err != nil {
 		return fmt.Errorf("failed to fetch events: %w", err)
@@ -310,18 +323,6 @@ func listEvents(cmd *cobra.Command, args []string) error {
 		if len(oooPeriods) > 0 {
 			events = filterEventsOutsideOOO(events, oooPeriods, primaryCal)
 		}
-	}
-
-	// Filter out all-day events if requested
-	noAllDay := viper.GetBool("no_allday")
-	if noAllDay {
-		var filtered []core.Event
-		for _, e := range events {
-			if !e.IsAllDay {
-				filtered = append(filtered, e)
-			}
-		}
-		events = filtered
 	}
 
 	fmt.Printf("📅 Events from %s to %s:\n", now.Format("Jan 2"), end.Format("Jan 2"))
@@ -501,7 +502,7 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 	}
 
 	if opts.ShowInProgress && event.InProgress(time.Now()) {
-		remaining := event.End.Sub(time.Now())
+		remaining := time.Until(event.End)
 		fmt.Printf("%s🟢 IN PROGRESS (%s remaining)\n", indent, formatDurationCompact(remaining))
 	}
 
