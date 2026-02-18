@@ -440,7 +440,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.Today):
-			m.currentDate = time.Now()
+			now := time.Now()
+			isToday := m.currentDate.Year() == now.Year() &&
+				m.currentDate.Month() == now.Month() &&
+				m.currentDate.Day() == now.Day()
+
+			if isToday {
+				// Already on today — just scroll to now
+				m.selectedIdx = m.findNowEventIdx()
+				m.scrollToNow()
+				return m, nil
+			}
+			// Switch to today (auto-scrolls to now on load)
+			m.currentDate = now
 			m.loading = true
 			return m, m.loadEvents()
 
@@ -981,7 +993,7 @@ func (m Model) renderHelpPanel() string {
 		HelpKeyStyle.Render("  →/l        ") + " Next day",
 		HelpKeyStyle.Render("  n / ]      ") + " Next day (always)",
 		HelpKeyStyle.Render("  p / [      ") + " Previous day (always)",
-		HelpKeyStyle.Render("  t          ") + " Jump to today",
+		HelpKeyStyle.Render("  t          ") + " Jump to now / today",
 		HelpKeyStyle.Render("  tab        ") + " Switch panel",
 		HelpKeyStyle.Render("  o / enter  ") + " Open meeting link",
 		HelpKeyStyle.Render("  r          ") + " Refresh events",
