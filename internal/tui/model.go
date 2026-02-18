@@ -121,6 +121,7 @@ type Model struct {
 	viewportReady bool
 	compactMode   bool       // True when terminal is too narrow for side-by-side
 	focusedPanel  PanelFocus // Which panel is shown in compact mode
+	showHelp      bool       // Whether the help overlay is visible
 }
 
 // NewModel creates a new TUI model
@@ -366,9 +367,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 
 	case tea.KeyMsg:
+		// When help overlay is shown, any key dismisses it
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
+
+		case key.Matches(msg, m.keys.Help):
+			m.showHelp = true
+			return m, nil
 
 		case key.Matches(msg, m.keys.Up):
 			if m.selectedIdx > 0 {
@@ -496,17 +507,24 @@ func (m Model) View() string {
 			Foreground(errorColor).
 			Render(fmt.Sprintf("Error: %v", m.err))
 	} else if m.compactMode {
-		// Single panel mode - show only the focused panel
-		if m.focusedPanel == FocusList {
+		// Single panel mode
+		if m.showHelp {
+			content = m.renderHelpPanel()
+		} else if m.focusedPanel == FocusList {
 			content = m.renderListPanel()
 		} else {
 			content = m.renderDetailPanel()
 		}
 	} else {
-		// Side-by-side mode
+		// Side-by-side mode — help replaces the detail panel
 		listPanel := m.renderListPanel()
-		detailPanel := m.renderDetailPanel()
-		content = lipgloss.JoinHorizontal(lipgloss.Top, listPanel, " ", detailPanel)
+		var rightPanel string
+		if m.showHelp {
+			rightPanel = m.renderHelpPanel()
+		} else {
+			rightPanel = m.renderDetailPanel()
+		}
+		content = lipgloss.JoinHorizontal(lipgloss.Top, listPanel, " ", rightPanel)
 	}
 
 	// Help bar
@@ -910,7 +928,6 @@ func (m Model) renderHelp() string {
 	var keys []string
 
 	if m.compactMode {
-		// Compact mode help
 		keys = []string{
 			HelpKeyStyle.Render("↑/↓") + " nav",
 			HelpKeyStyle.Render("←/→") + " switch",
@@ -921,7 +938,6 @@ func (m Model) renderHelp() string {
 			HelpKeyStyle.Render("q") + " quit",
 		}
 	} else {
-		// Full mode help
 		keys = []string{
 			HelpKeyStyle.Render("↑/k") + " up",
 			HelpKeyStyle.Render("↓/j") + " down",
@@ -934,7 +950,57 @@ func (m Model) renderHelp() string {
 			HelpKeyStyle.Render("q") + " quit",
 		}
 	}
-	return HelpStyle.Render(strings.Join(keys, "  •  "))
+
+	fullLine := strings.Join(keys, "  •  ")
+
+	// Check if the full help bar fits in the available width
+	// Calculate visual length (without ANSI escape codes)
+	maxWidth := m.width - 4
+	visualLen := lipgloss.Width(fullLine)
+
+	if visualLen > maxWidth {
+		// Doesn't fit — show minimal hint
+		return HelpStyle.Render(HelpKeyStyle.Render("?") + " help")
+	}
+
+	return HelpStyle.Render(fullLine)
+}
+
+func (m Model) renderHelpPanel() string {
+	header := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		Render("Keyboard Shortcuts")
+
+	lines := []string{
+		"",
+		HelpKeyStyle.Render("  ↑/k        ") + " Move up",
+		HelpKeyStyle.Render("  ↓/j        ") + " Move down",
+		HelpKeyStyle.Render("  ctrl+u/d   ") + " Scroll detail panel",
+		HelpKeyStyle.Render("  ←/h        ") + " Previous day",
+		HelpKeyStyle.Render("  →/l        ") + " Next day",
+		HelpKeyStyle.Render("  n / ]      ") + " Next day (always)",
+		HelpKeyStyle.Render("  p / [      ") + " Previous day (always)",
+		HelpKeyStyle.Render("  t          ") + " Jump to today",
+		HelpKeyStyle.Render("  tab        ") + " Switch panel",
+		HelpKeyStyle.Render("  o / enter  ") + " Open meeting link",
+		HelpKeyStyle.Render("  r          ") + " Refresh events",
+		HelpKeyStyle.Render("  q / ctrl+c ") + " Quit",
+		"",
+		lipgloss.NewStyle().Foreground(mutedColor).Italic(true).Render("  Press any key to close"),
+	}
+
+	body := strings.Join(lines, "\n")
+
+	// Use the same dimensions as the detail panel
+	panelWidth := m.detailWidth
+	if m.compactMode {
+		panelWidth = m.listWidth
+	}
+
+	return DetailPanelStyle.Width(panelWidth).Height(m.contentHeight).Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, body),
+	)
 }
 
 // Helper functions
