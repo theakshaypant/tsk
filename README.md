@@ -12,6 +12,14 @@ It's a CLI tool that pulls events from multiple calendar providers (starting wit
 
 Works with your primary calendar, shared calendars, subscribed calendars (holidays, team schedules), and all those calendars you forgot you subscribed to.
 
+## Install
+
+```bash
+go install github.com/theakshaypant/tsk/cmd/tsk@latest
+```
+
+Make sure `$GOPATH/bin` is in your `PATH` — then `tsk` is ready to go.
+
 ## Google Calendar
 
 To hook up your Google account:
@@ -30,7 +38,7 @@ If you're running this on a headless server or just hate browsers, there's a `--
 # What's on the calendar?
 tsk
 
-# What's next?
+# What's next? (countdown + conflict detection if you've double-booked)
 tsk next
 
 # Just the next 3 days
@@ -41,6 +49,9 @@ tsk --from monday --to friday
 
 # Hide the OOO noise
 tsk --ooo=false
+
+# Skip all-day events
+tsk --no-allday
 
 # Smart mode: if you're OOO, hide everything else
 tsk --smart-ooo
@@ -58,12 +69,15 @@ tsk ui
 ```
 
 This gives you a proper TUI with:
-- Event list on the left, details on the right
-- Navigate with arrow keys or vim bindings (`j/k`, `h/l`)
-- Jump between days, see what's coming up
-- Open meeting links directly (`o` or Enter)
-- A "NOW" marker so you know where you are in your day
+- Event list on the left, details on the right (collapses to single-panel on narrow terminals)
+- Navigate with arrow keys, `←`/`→` to switch days
+- A "NOW" marker so you know where you are in your day — auto-scrolls to it on load
+- Jump to now with `t`, switch panels with `tab`
+- Open meeting links with `Enter`, view event in calendar with `v`
 - Past events dimmed out so you can focus on what's ahead
+- Duplicate events across shared calendars merged into one, with per-calendar responses
+- HTML descriptions rendered cleanly — links stay clickable
+- Press `?` for the full shortcut list
 
 ![UI Screenshot](assets/tsk_ui.png)
 
