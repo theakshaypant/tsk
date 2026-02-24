@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/theakshaypant/tsk/internal/core"
 	"github.com/theakshaypant/tsk/internal/util"
 )
@@ -799,8 +800,8 @@ func (m *Model) updateDetailContent() {
 	width := m.detailView.Width
 	var lines []string
 
-	// Title
-	lines = append(lines, TitleStyle.Render(event.Title))
+	// Title (wrap to panel width)
+	lines = append(lines, TitleStyle.Render(ansi.Wordwrap(event.Title, width, "")))
 	lines = append(lines, "")
 
 	// Calendar(s)
@@ -809,7 +810,7 @@ func (m *Model) updateDetailContent() {
 		for _, cr := range event.Calendars {
 			calNames = append(calNames, cr.Calendar.Name)
 		}
-		lines = append(lines, renderField("📅 Calendars", strings.Join(calNames, ", ")))
+		lines = append(lines, renderWrappedField("📅 Calendars", strings.Join(calNames, ", "), width))
 	} else if event.Calendar.Name != "" {
 		lines = append(lines, renderField("📅 Calendar", event.Calendar.Name))
 	}
@@ -848,13 +849,15 @@ func (m *Model) updateDetailContent() {
 
 	// Location
 	if event.Location != "" {
-		lines = append(lines, renderField("📍 Location", event.Location))
+		lines = append(lines, renderWrappedField("📍 Location", event.Location, width))
 	}
 
 	// Meeting link
 	if event.MeetingLink != "" {
-		// Apply styling first, then create hyperlink
-		styledText := LinkStyle.Render(event.MeetingLink)
+		labelWidth := lipgloss.Width(LabelStyle.Render("📹 Join")) + 1
+		maxLinkLen := width - labelWidth
+		displayURL := truncateText(event.MeetingLink, maxLinkLen)
+		styledText := LinkStyle.Render(displayURL)
 		linkText := util.MakeHyperlink(event.MeetingLink, styledText)
 		lines = append(lines, renderField("📹 Join", linkText))
 	}
@@ -869,12 +872,11 @@ func (m *Model) updateDetailContent() {
 		lines = append(lines, renderField("📊 Response", formatStatus(event.Status)))
 	}
 
-	// Description (no truncation now - it's scrollable!)
+	// Description (word-wrapped to panel width, scrollable)
 	if event.Description != "" {
 		lines = append(lines, "")
 		lines = append(lines, LabelStyle.Render("📝 Description"))
-		// Word wrap description
-		wrapped := wordWrap(event.Description, width-4)
+		wrapped := ansi.Wordwrap(event.Description, width, "")
 		lines = append(lines, ValueStyle.Render(wrapped))
 	}
 
@@ -882,14 +884,15 @@ func (m *Model) updateDetailContent() {
 	if len(event.Attachments) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, LabelStyle.Render("📎 Attachments"))
+		maxAttLen := width - 5 // "   • " prefix = 5 chars
 		for _, att := range event.Attachments {
 			if att.URL != "" {
-				// Apply styling first, then create hyperlink
-				styledName := LinkStyle.Render(att.Name)
+				displayName := truncateText(att.Name, maxAttLen)
+				styledName := LinkStyle.Render(displayName)
 				linkText := util.MakeHyperlink(att.URL, styledName)
 				lines = append(lines, fmt.Sprintf("   • %s", linkText))
 			} else {
-				lines = append(lines, fmt.Sprintf("   • %s", att.Name))
+				lines = append(lines, fmt.Sprintf("   • %s", truncateText(att.Name, maxAttLen)))
 			}
 		}
 	}
@@ -998,6 +1001,24 @@ func renderField(label, value string) string {
 	return LabelStyle.Render(label) + " " + ValueStyle.Render(value)
 }
 
+// renderWrappedField renders a label-value field, word-wrapping the value
+// to fit within maxWidth. Continuation lines are indented to align with the value.
+func renderWrappedField(label, value string, maxWidth int) string {
+	labelRendered := LabelStyle.Render(label)
+	labelWidth := lipgloss.Width(labelRendered) + 1 // +1 for the space
+	valueWidth := maxWidth - labelWidth
+	if valueWidth < 10 {
+		valueWidth = 10
+	}
+	wrapped := ansi.Wordwrap(value, valueWidth, "")
+	wrapLines := strings.Split(wrapped, "\n")
+	indent := strings.Repeat(" ", labelWidth)
+	for i := 1; i < len(wrapLines); i++ {
+		wrapLines[i] = indent + wrapLines[i]
+	}
+	return labelRendered + " " + ValueStyle.Render(strings.Join(wrapLines, "\n"))
+}
+
 func formatDuration(d time.Duration) string {
 	if d < 0 {
 		d = -d
@@ -1058,27 +1079,19 @@ func formatStatus(status core.EventStatus) string {
 	}
 }
 
-func wordWrap(s string, width int) string {
-	if width <= 0 {
+// truncateText truncates s to maxLen characters, adding "…" if truncated.
+func truncateText(s string, maxLen int) string {
+	if maxLen <= 0 {
 		return s
 	}
-	var result strings.Builder
-	words := strings.Fields(s)
-	lineLen := 0
-
-	for i, word := range words {
-		if lineLen+len(word)+1 > width && lineLen > 0 {
-			result.WriteString("\n")
-			lineLen = 0
-		}
-		if i > 0 && lineLen > 0 {
-			result.WriteString(" ")
-			lineLen++
-		}
-		result.WriteString(word)
-		lineLen += len(word)
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
 	}
-	return result.String()
+	if maxLen <= 1 {
+		return "…"
+	}
+	return string(runes[:maxLen-1]) + "…"
 }
 
 // openURL opens a URL in the default browser
