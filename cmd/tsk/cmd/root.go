@@ -477,10 +477,10 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 
 	if opts.ShowDesc && event.Description != "" {
 		if opts.Compact {
-			fmt.Printf("%s📝 Description: %s\n", indent, truncate(cleanHTML(event.Description), 80))
+			fmt.Printf("%s📝 Description: %s\n", indent, truncate(util.HTMLToText(event.Description, 80), 80))
 		} else {
 			fmt.Printf("%s📝 Description:\n", indent)
-			desc := cleanHTML(event.Description)
+			desc := util.HTMLToText(event.Description, 60)
 			for _, line := range wrapText(desc, 60) {
 				fmt.Printf("%s   %s\n", indent, line)
 			}
@@ -530,29 +530,6 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 func printEvent(event core.Event) {
 	fmt.Println()
 	DisplayEvent(event, DisplayOptionsFromConfig(false))
-}
-
-// cleanHTML removes HTML tags from a string
-func cleanHTML(s string) string {
-	s = strings.ReplaceAll(s, "<br>", " ")
-	s = strings.ReplaceAll(s, "<br/>", " ")
-	s = strings.ReplaceAll(s, "<br />", " ")
-	s = strings.ReplaceAll(s, "</p>", " ")
-	s = strings.ReplaceAll(s, "</div>", " ")
-
-	for {
-		start := strings.Index(s, "<")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(s[start:], ">")
-		if end == -1 {
-			break
-		}
-		s = s[:start] + s[start+end+1:]
-	}
-
-	return strings.TrimSpace(s)
 }
 
 // wrapText wraps text to the given width

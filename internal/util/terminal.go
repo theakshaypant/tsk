@@ -10,3 +10,18 @@ func MakeHyperlink(url, displayText string) string {
 	// Using BEL (\a or \007) instead of ST (\033\\) for better compatibility
 	return fmt.Sprintf("\033]8;;%s\a%s\033]8;;\a", url, displayText)
 }
+
+// TruncateText truncates s to maxLen runes, appending "…" if truncated.
+func TruncateText(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen <= 1 {
+		return "…"
+	}
+	return string(runes[:maxLen-1]) + "…"
+}

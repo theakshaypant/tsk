@@ -856,7 +856,7 @@ func (m *Model) updateDetailContent() {
 	if event.MeetingLink != "" {
 		labelWidth := lipgloss.Width(LabelStyle.Render("📹 Join")) + 1
 		maxLinkLen := width - labelWidth
-		displayURL := truncateText(event.MeetingLink, maxLinkLen)
+		displayURL := util.TruncateText(event.MeetingLink, maxLinkLen)
 		styledText := LinkStyle.Render(displayURL)
 		linkText := util.MakeHyperlink(event.MeetingLink, styledText)
 		lines = append(lines, renderField("📹 Join", linkText))
@@ -872,11 +872,12 @@ func (m *Model) updateDetailContent() {
 		lines = append(lines, renderField("📊 Response", formatStatus(event.Status)))
 	}
 
-	// Description (word-wrapped to panel width, scrollable)
+	// Description (convert HTML → plain text, then word-wrap)
 	if event.Description != "" {
 		lines = append(lines, "")
 		lines = append(lines, LabelStyle.Render("📝 Description"))
-		wrapped := ansi.Wordwrap(event.Description, width, "")
+		desc := util.HTMLToText(event.Description, width)
+		wrapped := ansi.Wordwrap(desc, width, "")
 		lines = append(lines, ValueStyle.Render(wrapped))
 	}
 
@@ -887,12 +888,12 @@ func (m *Model) updateDetailContent() {
 		maxAttLen := width - 5 // "   • " prefix = 5 chars
 		for _, att := range event.Attachments {
 			if att.URL != "" {
-				displayName := truncateText(att.Name, maxAttLen)
+				displayName := util.TruncateText(att.Name, maxAttLen)
 				styledName := LinkStyle.Render(displayName)
 				linkText := util.MakeHyperlink(att.URL, styledName)
 				lines = append(lines, fmt.Sprintf("   • %s", linkText))
 			} else {
-				lines = append(lines, fmt.Sprintf("   • %s", truncateText(att.Name, maxAttLen)))
+				lines = append(lines, fmt.Sprintf("   • %s", util.TruncateText(att.Name, maxAttLen)))
 			}
 		}
 	}
@@ -1077,21 +1078,6 @@ func formatStatus(status core.EventStatus) string {
 	default:
 		return "Unknown"
 	}
-}
-
-// truncateText truncates s to maxLen characters, adding "…" if truncated.
-func truncateText(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	if maxLen <= 1 {
-		return "…"
-	}
-	return string(runes[:maxLen-1]) + "…"
 }
 
 // openURL opens a URL in the default browser
