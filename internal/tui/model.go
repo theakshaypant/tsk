@@ -430,9 +430,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentDate.Day() == now.Day()
 
 			if isToday {
-				// Already on today — just scroll to now
+				// Already on today — jump selection to now and refresh views
 				m.selectedIdx = m.findNowEventIdx()
+				m.updateListContent()
 				m.scrollToNow()
+				m.updateDetailContent()
+				m.detailView.GotoTop()
 				return m, nil
 			}
 			// Switch to today (auto-scrolls to now on load)
