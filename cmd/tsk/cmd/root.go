@@ -11,14 +11,23 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/theakshaypant/tsk/internal/adapter/google"
+	"github.com/theakshaypant/tsk/internal/adapter/outlook"
 	"github.com/theakshaypant/tsk/internal/core"
 	"github.com/theakshaypant/tsk/internal/util"
 )
 
+// CalendarAdapter extends core.Provider with login and calendar listing.
+// Both Google and Outlook adapters implement this interface.
+type CalendarAdapter interface {
+	core.Provider
+	Login(ctx context.Context) error
+	Calendars() map[string]string
+}
+
 var (
 	cfgFile string
 	profile string
-	adapter *google.GoogleAdapter
+	adapter CalendarAdapter
 )
 
 var rootCmd = &cobra.Command{
@@ -133,8 +142,11 @@ func applyProfile() {
 
 	// List of settings that can be overridden by profile
 	settings := []string{
+		"provider",
 		"credentials_file",
 		"token_file",
+		"client_id",
+		"tenant_id",
 		"days",
 		"from",
 		"to",
@@ -196,12 +208,28 @@ func initAdapter(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	provider := viper.GetString("provider")
+	if provider == "" {
+		provider = "google"
+	}
+
+	switch provider {
+	case "google":
+		return initGoogleAdapter(cmd)
+	case "outlook":
+		return initOutlookAdapter(cmd)
+	default:
+		return fmt.Errorf("unknown provider: %s (supported: google, outlook)", provider)
+	}
+}
+
+func initGoogleAdapter(cmd *cobra.Command) error {
 	credsFile := expandPath(viper.GetString("credentials_file"))
 	tokenFile := expandPath(viper.GetString("token_file"))
 
 	// Check if files exist
 	if _, err := os.Stat(credsFile); os.IsNotExist(err) {
-		return fmt.Errorf("credentials file not found: %s\n\nDownload it from Google Cloud Console or run 'tsk auth'", credsFile)
+		return fmt.Errorf("credentials file not found: %s\n\nSetup guide: https://github.com/theakshaypant/tsk/tree/main/docs/google_setup.md", credsFile)
 	}
 
 	if _, err := os.Stat(tokenFile); os.IsNotExist(err) {
@@ -212,6 +240,34 @@ func initAdapter(cmd *cobra.Command, args []string) error {
 		"google",
 		"Google Calendar",
 		credsFile,
+		tokenFile,
+	)
+
+	if err := adapter.Login(cmd.Context()); err != nil {
+		return fmt.Errorf("login failed: %w", err)
+	}
+
+	return nil
+}
+
+func initOutlookAdapter(cmd *cobra.Command) error {
+	clientID := viper.GetString("client_id")
+	if clientID == "" {
+		return fmt.Errorf("client_id not configured for Outlook provider\n\nAdd it to your profile config:\n  client_id: \"your-azure-app-client-id\"\n\nSetup guide: https://github.com/theakshaypant/tsk/tree/main/docs/outlook_setup.md")
+	}
+
+	tenantID := viper.GetString("tenant_id")
+	tokenFile := expandPath(viper.GetString("token_file"))
+
+	if _, err := os.Stat(tokenFile); os.IsNotExist(err) {
+		return fmt.Errorf("token file not found: %s\n\nRun 'tsk auth' to authenticate with Microsoft", tokenFile)
+	}
+
+	adapter = outlook.NewOutlookAdapter(
+		"outlook",
+		"Outlook Calendar",
+		clientID,
+		tenantID,
 		tokenFile,
 	)
 
@@ -760,18 +816,29 @@ func detectPrimaryCalendar(configured string) string {
 
 	calendars := adapter.Calendars()
 
-	// Auto-detect: look for "primary" first
+	// Auto-detect: look for "primary" first (Google uses this key)
 	if _, exists := calendars["primary"]; exists {
 		return "primary"
 	}
 
+	// Look for a calendar named "Calendar" (Outlook default)
+	for id, name := range calendars {
+		if name == "Calendar" {
+			return id
+		}
+	}
+
 	// Then look for a personal email calendar (not group calendars)
-	// Group calendars have IDs like "c_xxx@group.calendar.google.com"
-	// Personal calendars have IDs like "user@domain.com"
+	// Google group calendars have IDs like "c_xxx@group.calendar.google.com"
 	for id := range calendars {
 		if strings.Contains(id, "@") && !strings.Contains(id, "@group.calendar.google.com") {
 			return id
 		}
+	}
+
+	// Fall back to first calendar
+	for id := range calendars {
+		return id
 	}
 
 	return ""

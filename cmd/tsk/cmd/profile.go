@@ -15,8 +15,8 @@ var profileCmd = &cobra.Command{
 	Short: "Manage configuration profiles",
 	Long: `Manage configuration profiles for different accounts and filter presets.
 
-Profiles allow you to quickly switch between different Google accounts
-and filter configurations.`,
+Profiles allow you to quickly switch between different calendar providers
+(Google Calendar, Outlook/Office 365) and filter configurations.`,
 }
 
 var profileListCmd = &cobra.Command{
@@ -66,8 +66,13 @@ func init() {
 	profileCmd.AddCommand(profileSetDefaultCmd)
 	profileCmd.AddCommand(profileEditCmd)
 
+	// Flags for add command - provider
+	profileAddCmd.Flags().String("provider", "google", "Calendar provider (google, outlook)")
+	profileAddCmd.Flags().String("client-id", "", "Azure AD application client ID (Outlook)")
+	profileAddCmd.Flags().String("tenant-id", "common", "Azure AD tenant ID (Outlook)")
+
 	// Flags for add command - filters
-	profileAddCmd.Flags().String("credentials-file", "", "Path to credentials file")
+	profileAddCmd.Flags().String("credentials-file", "", "Path to credentials file (Google)")
 	profileAddCmd.Flags().String("token-file", "", "Path to token file")
 	profileAddCmd.Flags().String("primary-calendar", "", "Primary calendar ID")
 	profileAddCmd.Flags().Int("days", 7, "Number of days to fetch")
@@ -92,8 +97,13 @@ func init() {
 	profileAddCmd.Flags().Bool("show-id", false, "Show event ID")
 	profileAddCmd.Flags().Bool("show-in-progress", true, "Show in-progress status")
 
+	// Same flags for edit command - provider
+	profileEditCmd.Flags().String("provider", "", "Calendar provider (google, outlook)")
+	profileEditCmd.Flags().String("client-id", "", "Azure AD application client ID (Outlook)")
+	profileEditCmd.Flags().String("tenant-id", "", "Azure AD tenant ID (Outlook)")
+
 	// Same flags for edit command - filters
-	profileEditCmd.Flags().String("credentials-file", "", "Path to credentials file")
+	profileEditCmd.Flags().String("credentials-file", "", "Path to credentials file (Google)")
 	profileEditCmd.Flags().String("token-file", "", "Path to token file")
 	profileEditCmd.Flags().String("primary-calendar", "", "Primary calendar ID")
 	profileEditCmd.Flags().Int("days", 0, "Number of days to fetch")
@@ -174,12 +184,17 @@ func runProfileShow(cmd *cobra.Command, args []string) error {
 	fmt.Println("─────────────────────────────────────────────────")
 
 	// Display in organized sections
+	fmt.Println("\n🔌 Provider:")
+	printSetting(settings, "provider", "provider")
+
 	fmt.Println("\n📁 Authentication:")
 	printSetting(settings, "credentials_file", "credentials-file")
+	printSetting(settings, "client_id", "client-id")
+	printSetting(settings, "tenant_id", "tenant-id")
 	printSetting(settings, "token_file", "token-file")
-	printSetting(settings, "primary-calendar", "primary-calendar")
 
 	fmt.Println("\n📅 Time Range:")
+	printSetting(settings, "primary_calendar", "primary-calendar")
 	printSetting(settings, "days", "days")
 	printSetting(settings, "calendars", "calendars")
 
@@ -232,6 +247,16 @@ func runProfileAdd(cmd *cobra.Command, args []string) error {
 	// Build profile from flags
 	profile := make(map[string]interface{})
 
+	if cmd.Flags().Changed("provider") {
+		val, _ := cmd.Flags().GetString("provider")
+		profile["provider"] = val
+	}
+	if val, _ := cmd.Flags().GetString("client-id"); val != "" {
+		profile["client_id"] = val
+	}
+	if val, _ := cmd.Flags().GetString("tenant-id"); cmd.Flags().Changed("tenant-id") {
+		profile["tenant_id"] = val
+	}
 	if val, _ := cmd.Flags().GetString("credentials-file"); val != "" {
 		profile["credentials_file"] = val
 	}
@@ -357,6 +382,21 @@ func runProfileEdit(cmd *cobra.Command, args []string) error {
 
 	// Update with changed flags
 	changed := false
+	if cmd.Flags().Changed("provider") {
+		val, _ := cmd.Flags().GetString("provider")
+		profile["provider"] = val
+		changed = true
+	}
+	if cmd.Flags().Changed("client-id") {
+		val, _ := cmd.Flags().GetString("client-id")
+		profile["client_id"] = val
+		changed = true
+	}
+	if cmd.Flags().Changed("tenant-id") {
+		val, _ := cmd.Flags().GetString("tenant-id")
+		profile["tenant_id"] = val
+		changed = true
+	}
 	if val, _ := cmd.Flags().GetString("credentials-file"); cmd.Flags().Changed("credentials-file") {
 		profile["credentials_file"] = val
 		changed = true

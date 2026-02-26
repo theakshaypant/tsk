@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"golang.org/x/oauth2/microsoft"
 	"google.golang.org/api/calendar/v3"
 )
 
@@ -24,13 +25,20 @@ const (
 
 var authCmd = &cobra.Command{
 	Use:   "auth",
-	Short: "Authenticate with Google Calendar",
-	Long: `Authenticate with Google Calendar using OAuth.
+	Short: "Authenticate with your calendar provider",
+	Long: `Authenticate with your calendar provider using OAuth.
 
-This command will:
-1. Start a local server to receive the OAuth callback
-2. Open your browser to sign in with Google
-3. Save the token to token.json for future use`,
+For Google Calendar:
+  1. Starts a local server to receive the OAuth callback
+  2. Opens your browser to sign in with Google
+  3. Saves the token for future use
+
+For Outlook / Office 365:
+  1. Starts a local server to receive the OAuth callback
+  2. Opens your browser to sign in with Microsoft
+  3. Saves the token for future use
+
+The provider is determined by your profile configuration (provider: google|outlook).`,
 	RunE:              runAuth,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil }, // Skip adapter init
 }
@@ -40,12 +48,25 @@ func init() {
 }
 
 func runAuth(cmd *cobra.Command, args []string) error {
-	credsFile := viper.GetString("credentials_file")
-	tokenFile := viper.GetString("token_file")
+	provider := viper.GetString("provider")
+
+	switch provider {
+	case "google":
+		return runGoogleAuth(cmd, args)
+	case "outlook":
+		return runOutlookAuth(cmd, args)
+	default:
+		return fmt.Errorf("unknown provider: %s (supported: google, outlook)", provider)
+	}
+}
+
+func runGoogleAuth(_ *cobra.Command, _ []string) error {
+	credsFile := expandPath(viper.GetString("credentials_file"))
+	tokenFile := expandPath(viper.GetString("token_file"))
 
 	b, err := os.ReadFile(credsFile)
 	if err != nil {
-		return fmt.Errorf("unable to read credentials file: %w\n\nDownload it from Google Cloud Console:\n  1. Go to https://console.cloud.google.com\n  2. APIs & Services → Credentials\n  3. Create OAuth 2.0 Client ID (Desktop app)\n  4. Download JSON and save as %s", err, credsFile)
+		return fmt.Errorf("unable to read credentials file: %w\n\nSetup guide: https://github.com/theakshaypant/tsk/tree/main/docs/google_setup.md", err)
 	}
 
 	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope)
@@ -55,7 +76,7 @@ func runAuth(cmd *cobra.Command, args []string) error {
 
 	config.RedirectURL = redirectURL
 
-	tok, err := getTokenViaLocalServer(config)
+	tok, err := getTokenViaLocalServer(config, "Google", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	if err != nil {
 		return fmt.Errorf("failed to get token: %w", err)
 	}
@@ -66,12 +87,52 @@ func runAuth(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\n✅ Authentication successful!")
 	fmt.Printf("📁 Token saved to %s\n", tokenFile)
-	fmt.Println("\nYou can now run 'tsk' to see your calendar events.")
+	fmt.Println("\nYou can now run 'tsk' to see your Google Calendar events.")
 
 	return nil
 }
 
-func getTokenViaLocalServer(config *oauth2.Config) (*oauth2.Token, error) {
+func runOutlookAuth(_ *cobra.Command, _ []string) error {
+	clientID := viper.GetString("client_id")
+	if clientID == "" {
+		return fmt.Errorf("client_id not configured\n\nAdd it to your profile config:\n  client_id: \"your-azure-app-client-id\"\n\nSetup guide: https://github.com/theakshaypant/tsk/tree/main/docs/outlook_setup.md")
+	}
+
+	tenantID := viper.GetString("tenant_id")
+	if tenantID == "" {
+		tenantID = "common"
+	}
+
+	tokenFile := expandPath(viper.GetString("token_file"))
+
+	config := &oauth2.Config{
+		ClientID:    clientID,
+		Endpoint:    microsoft.AzureADEndpoint(tenantID),
+		RedirectURL: redirectURL,
+		Scopes: []string{
+			"https://graph.microsoft.com/Calendars.Read",
+			"https://graph.microsoft.com/User.Read",
+			"offline_access",
+		},
+	}
+
+	tok, err := getTokenViaLocalServer(config, "Microsoft", oauth2.SetAuthURLParam("prompt", "consent"))
+	if err != nil {
+		return fmt.Errorf("failed to get token: %w", err)
+	}
+
+	if err := saveToken(tokenFile, tok); err != nil {
+		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	fmt.Println("\n✅ Authentication successful!")
+	fmt.Printf("📁 Token saved to %s\n", tokenFile)
+	fmt.Println("\nYou can now run 'tsk' to see your Outlook calendar events.")
+
+	return nil
+}
+
+func getTokenViaLocalServer(config *oauth2.Config, providerName string, authOpts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
 	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 
@@ -105,7 +166,7 @@ func getTokenViaLocalServer(config *oauth2.Config) (*oauth2.Token, error) {
 			</head>
 			<body>
 				<div class="card">
-					<h1>✓ Authorization Successful</h1>
+					<h1>Authorization Successful</h1>
 					<p>You can close this window and return to the terminal.</p>
 				</div>
 			</body>
@@ -123,9 +184,9 @@ func getTokenViaLocalServer(config *oauth2.Config) (*oauth2.Token, error) {
 		}
 	}()
 
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	authURL := config.AuthCodeURL("state-token", authOpts...)
 
-	fmt.Println("🔐 Opening browser for Google authorization...")
+	fmt.Printf("🔐 Opening browser for %s authorization...\n", providerName)
 	fmt.Println()
 
 	if err := openBrowser(authURL); err != nil {
