@@ -7,6 +7,17 @@
 default_profile: work
 
 # ─────────────────────────────────────────────────
+# UI Settings (for `tsk ui`)
+# ─────────────────────────────────────────────────
+ui:
+  # split: side            # "side" (side-by-side) or "stack" (top/bottom)
+  #                        # Can also be toggled at runtime with 's'
+  # list_percent: 0        # List panel size as a percentage (10-90)
+  #                        # 0 = auto (responsive based on terminal width)
+  #                        # In side split: controls width ratio
+  #                        # In stack split: controls height ratio
+
+# ─────────────────────────────────────────────────
 # Profiles
 # ─────────────────────────────────────────────────
 # Each profile is a complete configuration:

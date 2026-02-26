@@ -87,7 +87,8 @@ tsk ui
 ```
 
 This gives you a proper TUI with:
-- Event list on the left, details on the right (collapses to single-panel on narrow terminals)
+- Event list and details side by side, or stacked — your choice
+- Collapses to single-panel on narrow terminals
 - Navigate with arrow keys, `←`/`→` to switch days
 - A "NOW" marker so you know where you are in your day — auto-scrolls to it on load
 - Jump to now with `t`, switch panels with `tab`
@@ -95,7 +96,7 @@ This gives you a proper TUI with:
 - Past events dimmed out so you can focus on what's ahead
 - Duplicate events across shared calendars merged into one, with per-calendar responses
 - HTML descriptions rendered cleanly — links stay clickable
-- Press `?` for the full shortcut list
+
 
 ![UI Screenshot](assets/tsk_ui.png)
 

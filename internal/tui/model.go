@@ -30,6 +30,7 @@ type KeyMap struct {
 	PrevDay    key.Binding
 	Today      key.Binding
 	Tab        key.Binding
+	Split      key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 }
@@ -79,6 +80,10 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("tab"),
 		key.WithHelp("tab", "switch panel"),
 	),
+	Split: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "toggle split"),
+	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q", "quit"),
@@ -89,6 +94,14 @@ var DefaultKeyMap = KeyMap{
 	),
 }
 
+// SplitDirection controls whether panels are side-by-side or stacked
+type SplitDirection int
+
+const (
+	SplitSide  SplitDirection = iota // "side" — panels side by side
+	SplitStack                       // "stack" — panels stacked top/bottom
+)
+
 // Panel focus for compact mode
 type PanelFocus int
 
@@ -97,39 +110,60 @@ const (
 	FocusDetail
 )
 
+// UIOptions holds global UI configuration
+type UIOptions struct {
+	Split       SplitDirection
+	ListPercent int // 0 = auto/responsive, 10-90 = fixed percentage for list panel
+}
+
 // Model is the Bubble Tea model for the TUI
 type Model struct {
-	events        []core.Event
-	selectedIdx   int
-	currentDate   time.Time
-	width         int
-	height        int
-	listWidth     int
-	detailWidth   int
-	contentHeight int
-	keys          KeyMap
-	provider      core.Provider
-	fetchOptions  core.FetchOptions
-	loading       bool
-	err           error
-	listView      viewport.Model
-	detailView    viewport.Model
-	viewportReady bool
-	compactMode   bool       // True when terminal is too narrow for side-by-side
-	focusedPanel  PanelFocus // Which panel is shown in compact mode
-	showHelp      bool       // Whether the help overlay is visible
+	events         []core.Event
+	selectedIdx    int
+	currentDate    time.Time
+	width          int
+	height         int
+	listWidth      int
+	detailWidth    int
+	listHeight     int
+	detailHeight   int
+	contentHeight  int
+	keys           KeyMap
+	provider       core.Provider
+	fetchOptions   core.FetchOptions
+	loading        bool
+	err            error
+	listView       viewport.Model
+	detailView     viewport.Model
+	viewportReady  bool
+	compactMode    bool           // True when terminal is too narrow for side-by-side
+	focusedPanel   PanelFocus     // Which panel is shown in compact mode
+	splitDirection SplitDirection // Vertical (side-by-side) or horizontal (stacked)
+	listPercent    int            // 0 = auto, 10-90 = user-configured list panel %
+	showHelp       bool           // Whether the help overlay is visible
 }
 
 // NewModel creates a new TUI model
-func NewModel(provider core.Provider, opts core.FetchOptions) Model {
+func NewModel(provider core.Provider, opts core.FetchOptions, uiOpts UIOptions) Model {
+	pct := uiOpts.ListPercent
+	if pct != 0 {
+		if pct < 10 {
+			pct = 10
+		} else if pct > 90 {
+			pct = 90
+		}
+	}
+
 	return Model{
-		events:       []core.Event{},
-		selectedIdx:  0,
-		currentDate:  time.Now(),
-		keys:         DefaultKeyMap,
-		provider:     provider,
-		fetchOptions: opts,
-		loading:      true,
+		events:         []core.Event{},
+		selectedIdx:    0,
+		currentDate:    time.Now(),
+		keys:           DefaultKeyMap,
+		provider:       provider,
+		fetchOptions:   opts,
+		splitDirection: uiOpts.Split,
+		listPercent:    pct,
+		loading:        true,
 	}
 }
 
@@ -201,6 +235,31 @@ func (m *Model) scrollToNow() {
 	m.listView.SetYOffset(offset)
 }
 
+// resizeViewports updates viewport dimensions based on current layout
+func (m *Model) resizeViewports() {
+	listViewportHeight := m.listHeight - 4
+	if listViewportHeight < 1 {
+		listViewportHeight = 1
+	}
+	listViewportWidth := m.listWidth - 4
+	if listViewportWidth < 10 {
+		listViewportWidth = 10
+	}
+	detailViewportHeight := m.detailHeight - 4
+	if detailViewportHeight < 1 {
+		detailViewportHeight = 1
+	}
+	detailViewportWidth := m.detailWidth - 4
+	if detailViewportWidth < 10 {
+		detailViewportWidth = 10
+	}
+
+	m.listView.Width = listViewportWidth
+	m.listView.Height = listViewportHeight
+	m.detailView.Width = detailViewportWidth
+	m.detailView.Height = detailViewportHeight
+}
+
 // Messages
 type eventsLoadedMsg struct {
 	events []core.Event
@@ -256,10 +315,25 @@ func (m *Model) calculateLayout() {
 
 	// Compact mode threshold - if too narrow for side-by-side
 	compactThreshold := 70
+	if m.splitDirection == SplitStack {
+		compactThreshold = 40
+	}
 	m.compactMode = width < compactThreshold
 
 	if m.compactMode {
 		// Single panel mode - use full width
+		m.listWidth = width - 4
+		m.detailWidth = width - 4
+		m.listHeight = m.contentHeight
+		m.detailHeight = m.contentHeight
+		if m.listWidth < 20 {
+			m.listWidth = 20
+		}
+		if m.detailWidth < 20 {
+			m.detailWidth = 20
+		}
+	} else if m.splitDirection == SplitStack {
+		// Stacked mode - list on top, detail on bottom
 		m.listWidth = width - 4
 		m.detailWidth = width - 4
 		if m.listWidth < 20 {
@@ -268,24 +342,37 @@ func (m *Model) calculateLayout() {
 		if m.detailWidth < 20 {
 			m.detailWidth = 20
 		}
+
+		listPct := m.listPercent
+		if listPct == 0 {
+			listPct = 40
+		}
+		m.listHeight = m.contentHeight * listPct / 100
+		m.detailHeight = m.contentHeight - m.listHeight - 1
+		if m.listHeight < 5 {
+			m.listHeight = 5
+		}
+		if m.detailHeight < 5 {
+			m.detailHeight = 5
+		}
 	} else {
-		// Side-by-side mode
-		// Responsive list/detail split based on width
-		if width < 100 {
-			// Narrow: 40% list, 60% detail
-			m.listWidth = width * 40 / 100
-		} else if width < 140 {
-			// Medium: 35% list, 65% detail
-			m.listWidth = width * 35 / 100
+		// Side-by-side mode (vertical split)
+		if m.listPercent > 0 {
+			m.listWidth = width * m.listPercent / 100
 		} else {
-			// Wide: 30% list, 70% detail (but cap list width)
-			m.listWidth = width * 30 / 100
-			if m.listWidth > 55 {
-				m.listWidth = 55
+			// Responsive split based on terminal width
+			if width < 100 {
+				m.listWidth = width * 40 / 100
+			} else if width < 140 {
+				m.listWidth = width * 35 / 100
+			} else {
+				m.listWidth = width * 30 / 100
+				if m.listWidth > 55 {
+					m.listWidth = 55
+				}
 			}
 		}
 
-		// Minimum list width
 		if m.listWidth < 30 {
 			m.listWidth = 30
 		}
@@ -295,6 +382,9 @@ func (m *Model) calculateLayout() {
 		if m.detailWidth < 35 {
 			m.detailWidth = 35
 		}
+
+		m.listHeight = m.contentHeight
+		m.detailHeight = m.contentHeight
 	}
 }
 
@@ -309,7 +399,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.calculateLayout()
 
 		// Calculate viewport dimensions
-		listViewportHeight := m.contentHeight - 4 // Account for borders and header
+		listViewportHeight := m.listHeight - 4
 		if listViewportHeight < 1 {
 			listViewportHeight = 1
 		}
@@ -318,11 +408,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			listViewportWidth = 10
 		}
 
-		detailViewportHeight := m.contentHeight - 4 // Account for panel header and borders
+		detailViewportHeight := m.detailHeight - 4
 		if detailViewportHeight < 1 {
 			detailViewportHeight = 1
 		}
-		detailViewportWidth := m.detailWidth - 4 // Account for padding
+		detailViewportWidth := m.detailWidth - 4
 		if detailViewportWidth < 10 {
 			detailViewportWidth = 10
 		}
@@ -452,6 +542,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case key.Matches(msg, m.keys.Split):
+			if m.splitDirection == SplitSide {
+				m.splitDirection = SplitStack
+			} else {
+				m.splitDirection = SplitSide
+			}
+			m.calculateLayout()
+			if m.viewportReady {
+				m.resizeViewports()
+				m.updateListContent()
+				m.updateDetailContent()
+			}
+			return m, nil
+
 		case key.Matches(msg, m.keys.Refresh):
 			m.loading = true
 			return m, m.loadEvents()
@@ -510,6 +614,16 @@ func (m Model) View() string {
 		} else {
 			content = m.renderDetailPanel()
 		}
+	} else if m.splitDirection == SplitStack {
+		// Stacked mode — list on top, detail on bottom
+		listPanel := m.renderListPanel()
+		var bottomPanel string
+		if m.showHelp {
+			bottomPanel = m.renderHelpPanel()
+		} else {
+			bottomPanel = m.renderDetailPanel()
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, listPanel, bottomPanel)
 	} else {
 		// Side-by-side mode — help replaces the detail panel
 		listPanel := m.renderListPanel()
@@ -699,7 +813,7 @@ func (m *Model) scrollListToSelection() {
 
 func (m Model) renderListPanel() string {
 	if len(m.events) == 0 {
-		return ListPanelStyle.Width(m.listWidth).Height(m.contentHeight).Render(
+		return ListPanelStyle.Width(m.listWidth).Height(m.listHeight).Render(
 			lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Render("No events"),
@@ -721,7 +835,7 @@ func (m Model) renderListPanel() string {
 
 	content := m.listView.View()
 
-	return ListPanelStyle.Width(m.listWidth).Height(m.contentHeight).Render(
+	return ListPanelStyle.Width(m.listWidth).Height(m.listHeight).Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, content),
 	)
 }
@@ -907,7 +1021,7 @@ func (m *Model) updateDetailContent() {
 
 func (m Model) renderDetailPanel() string {
 	if len(m.events) == 0 {
-		return DetailPanelStyle.Width(m.detailWidth).Height(m.contentHeight).Render(
+		return DetailPanelStyle.Width(m.detailWidth).Height(m.detailHeight).Render(
 			lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Render("No event selected"),
@@ -930,7 +1044,7 @@ func (m Model) renderDetailPanel() string {
 
 	content := m.detailView.View()
 
-	return DetailPanelStyle.Width(m.detailWidth).Height(m.contentHeight).Render(
+	return DetailPanelStyle.Width(m.detailWidth).Height(m.detailHeight).Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, "", content),
 	)
 }
@@ -942,6 +1056,7 @@ func (m Model) renderHelp() string {
 		HelpKeyStyle.Render("↑/↓") + " nav",
 		HelpKeyStyle.Render("←/→") + " day",
 		HelpKeyStyle.Render("tab") + " panel",
+		HelpKeyStyle.Render("s") + " split",
 		HelpKeyStyle.Render("t") + " now",
 		HelpKeyStyle.Render("enter") + " meet",
 		HelpKeyStyle.Render("v") + " view",
@@ -979,6 +1094,7 @@ func (m Model) renderHelpPanel() string {
 		HelpKeyStyle.Render("  ←          ") + " Previous day",
 		HelpKeyStyle.Render("  t          ") + " Jump to now / today",
 		HelpKeyStyle.Render("  tab        ") + " Switch panel",
+		HelpKeyStyle.Render("  s          ") + " Toggle split direction",
 		HelpKeyStyle.Render("  enter      ") + " Start meeting / open event",
 		HelpKeyStyle.Render("  v          ") + " View event in calendar",
 		HelpKeyStyle.Render("  r          ") + " Refresh events",
@@ -995,7 +1111,7 @@ func (m Model) renderHelpPanel() string {
 		panelWidth = m.listWidth
 	}
 
-	return DetailPanelStyle.Width(panelWidth).Height(m.contentHeight).Render(
+	return DetailPanelStyle.Width(panelWidth).Height(m.detailHeight).Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, body),
 	)
 }

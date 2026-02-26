@@ -22,7 +22,27 @@ var tuiCmd = &cobra.Command{
 }
 
 func init() {
+	tuiCmd.Flags().String("split", "side", "Panel split direction: side (side-by-side) or stack (top/bottom)")
+	tuiCmd.Flags().Int("list-percent", 0, "List panel size as percentage (10-90, 0 = auto)")
+	viper.BindPFlag("ui.split", tuiCmd.Flags().Lookup("split"))
+	viper.BindPFlag("ui.list_percent", tuiCmd.Flags().Lookup("list-percent"))
 	rootCmd.AddCommand(tuiCmd)
+}
+
+func parseUIOptions() tui.UIOptions {
+	split := strings.ToLower(viper.GetString("ui.split"))
+	var dir tui.SplitDirection
+	switch split {
+	case "stack":
+		dir = tui.SplitStack
+	default:
+		dir = tui.SplitSide
+	}
+
+	return tui.UIOptions{
+		Split:       dir,
+		ListPercent: viper.GetInt("ui.list_percent"),
+	}
 }
 
 func runTUI(cmd *cobra.Command, args []string) error {
@@ -30,7 +50,8 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	opts := buildFetchOptions()
 
 	// Create the TUI model
-	m := tui.NewModel(adapter, opts)
+	uiOpts := parseUIOptions()
+	m := tui.NewModel(adapter, opts, uiOpts)
 
 	// Set up the program with mouse support and alt screen
 	p := tea.NewProgram(
