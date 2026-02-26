@@ -6,7 +6,7 @@ A terminal calendar client for people who'd rather not deal with calendars.
 
 ---
 
-It's a CLI tool that pulls events from multiple calendar providers (starting with Google) and shows them in your terminal. Because sometimes you just want to see what's eating your day without opening a browser, signing into three accounts, and getting distracted by 47 unread emails.
+It's a CLI tool that pulls events from Google Calendar and Outlook Calendar and shows them in your terminal. Because sometimes you just want to see what's eating your day without opening a browser, signing into three accounts, and getting distracted by 47 unread emails.
 
 > **Look, don't touch.** tsk is *read-only*, it can see your calendar but can't create, modify, or delete anything. Your meetings are safe. (Whether that's a bug or a feature is up to you.)
 
@@ -20,9 +20,13 @@ go install github.com/theakshaypant/tsk/cmd/tsk@latest
 
 Make sure `$GOPATH/bin` is in your `PATH` — then `tsk` is ready to go.
 
-## Google Calendar
+## Calendar Providers
 
-To hook up your Google account:
+tsk supports multiple calendar providers. Set the `provider` field in your profile config (`google` or `outlook`) and authenticate.
+
+### Google Calendar
+
+Set up credentials via the Google Cloud Console, then:
 
 ```bash
 tsk auth
@@ -31,6 +35,20 @@ tsk auth
 This opens a browser, you click through Google's OAuth flow, and you're done. Tokens are saved locally so you don't have to do this dance every time.
 
 If you're running this on a headless server or just hate browsers, there's a `--manual` flag that gives you a URL to paste instead.
+
+[Google setup guide](docs/google_setup.md)
+
+### Outlook Calendar
+
+Register an app in Azure Portal, add your `client_id` and `tenant_id` to the profile config, then:
+
+```bash
+tsk -p outlook auth
+```
+
+Same browser OAuth flow, same local token storage. Works with personal Microsoft accounts, work/school accounts, or both — depending on how you registered the app.
+
+[Outlook setup guide](docs/outlook_setup.md)
 
 ## Usage
 
@@ -96,14 +114,17 @@ tsk -p today
 tsk -p meetings
 ```
 
-Set up profiles in `~/.config/tsk/config.yaml`. Each profile can have its own credentials (for multiple accounts), filters, and display preferences.
+Set up profiles in `~/.config/tsk/config.yaml`. Each profile can have its own provider, credentials (for multiple accounts), filters, and display preferences. Mix and match Google and Outlook accounts.
 
 ```bash
 # List profiles
 tsk profile list
 
-# Add a new one
-tsk profile add personal --credentials-file ~/.config/tsk/personal_creds.json
+# Add a Google profile
+tsk profile add work --provider google --credentials-file ~/.config/tsk/work_creds.json
+
+# Add an Outlook profile
+tsk profile add personal --provider outlook --client-id "your-azure-app-id" --tenant-id "your-tenant-id"
 
 # See what a profile looks like
 tsk profile show work
@@ -115,10 +136,4 @@ Copy `config.example.yaml` to `~/.config/tsk/config.yaml` and tweak to taste. Ev
 
 ---
 
-Still early days. More providers coming eventually. Maybe Outlook. Maybe iCloud. We'll see.
-
-
-<!-- TODO:
-1. Respond to events
-2. Create new events
--->
+Still early days. More providers might show up eventually. iCloud, maybe. We'll see.

@@ -10,7 +10,8 @@ default_profile: work
 # Profiles
 # ─────────────────────────────────────────────────
 # Each profile is a complete configuration:
-#   - Which Google account (credentials)
+#   - Provider: "google" or "outlook"
+#   - Provider-specific auth credentials
 #   - What filters to apply
 #   - What fields to display
 #
@@ -18,11 +19,13 @@ default_profile: work
 
 profiles:
   # ─────────────────────────────────────────────
-  # Work account profiles
+  # Google Calendar profiles
   # ─────────────────────────────────────────────
   
-  # Full work calendar view
+  # Full work calendar view (Google)
   work:
+    provider: google    # "google" or "outlook"
+
     # Google account credentials
     credentials_file: ~/.config/tsk/work_credentials.json
     token_file: ~/.config/tsk/work_token.json
@@ -143,6 +146,68 @@ profiles:
 
     display:
       calendar: true
+      time: true
+      location: false
+      meeting_link: true
+      description: false
+      status: false
+      event_url: false
+      attachments: false
+      id: false
+      in_progress: true
+
+  # ─────────────────────────────────────────────
+  # Outlook / Office 365 profiles
+  # ─────────────────────────────────────────────
+
+  # Full Outlook calendar view
+  outlook_work:
+    provider: outlook
+
+    # Azure AD app registration
+    client_id: "your-azure-app-client-id"
+    tenant_id: "common"         # "common" for any Microsoft account,
+                                # or your org tenant ID for single-tenant
+    token_file: ~/.config/tsk/outlook_token.json
+    # primary_calendar: "Calendar"  # Outlook default calendar name
+
+    days: 14
+    smart_ooo: true
+    subscribed: true
+    ooo: true
+    focus: false
+    workloc: false
+    accepted: true
+    no_allday: false
+
+    display:
+      calendar: true
+      time: true
+      location: true
+      meeting_link: true
+      description: true
+      status: true
+      event_url: true
+      attachments: false
+      id: false
+      in_progress: true
+
+  # Outlook — today's meetings only
+  outlook_today:
+    provider: outlook
+    client_id: "your-azure-app-client-id"
+    tenant_id: "common"
+    token_file: ~/.config/tsk/outlook_token.json
+
+    days: 1
+    smart_ooo: true
+    subscribed: false
+    ooo: false
+    no_allday: true
+    accepted: true
+
+    display:
+      calendar: false
       time: true
       location: false
       meeting_link: true
