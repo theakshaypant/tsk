@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -36,6 +37,14 @@ func DefaultFetchOptions(start, end time.Time) FetchOptions {
 	}
 }
 
+// Provider error constants
+var (
+	ErrNotImplemented    = errors.New("operation not supported by this provider")
+	ErrNotAttendee       = errors.New("you are not an attendee of this event")
+	ErrIsOrganizer       = errors.New("you cannot respond to your own event")
+	ErrInsufficientScope = errors.New("insufficient OAuth scope - re-authentication required")
+)
+
 // Provider represents a calendar source (Google, iCloud, Local .ics, etc).
 type Provider interface {
 	// ID returns the unique identifier from the config (e.g. "work_calendar")
@@ -45,4 +54,6 @@ type Provider interface {
 	// FetchEvents retrieves events matching the given options.
 	// This should block until done or context is cancelled.
 	FetchEvents(ctx context.Context, opts FetchOptions) ([]Event, error)
+	// RespondToEvent responds to an event invitation with the specified response.
+	RespondToEvent(ctx context.Context, calendarID, eventID string, opts RespondOptions) error
 }
