@@ -69,7 +69,7 @@ func runGoogleAuth(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to read credentials file: %w\n\nSetup guide: https://github.com/theakshaypant/tsk/tree/main/docs/google_setup.md", err)
 	}
 
-	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope)
+	config, err := google.ConfigFromJSON(b, calendar.CalendarEventsScope, calendar.CalendarReadonlyScope)
 	if err != nil {
 		return fmt.Errorf("unable to parse credentials: %w", err)
 	}
