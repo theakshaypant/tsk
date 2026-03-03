@@ -44,7 +44,7 @@ func (g *GoogleAdapter) Login(ctx context.Context) error {
 		return fmt.Errorf("read credentials file: %w", err)
 	}
 
-	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope)
+	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, calendar.CalendarEventsScope)
 	if err != nil {
 		return fmt.Errorf("parse credentials: %w", err)
 	}
