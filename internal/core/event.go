@@ -86,6 +86,9 @@ type Event struct {
 	Start    time.Time
 	End      time.Time
 	IsAllDay bool
+	// Recurring event information
+	// RecurringEventID is the ID of the master recurring event (empty for non-recurring events)
+	RecurringEventID string
 	// Metadata
 	Metadata map[string]string
 }
@@ -98,4 +101,105 @@ func (e Event) Duration() time.Duration {
 // InProgress checks if the event is happening right now.
 func (e Event) InProgress(now time.Time) bool {
 	return now.After(e.Start) && now.Before(e.End)
+}
+
+// NeedsResponse checks if this event is awaiting the user's response.
+// Returns true for events with StatusAwaiting.
+func (e Event) NeedsResponse() bool {
+	return e.Status == StatusAwaiting
+}
+
+// IsRecurring checks if this event is part of a recurring series.
+func (e Event) IsRecurring() bool {
+	return e.RecurringEventID != ""
+}
+
+// GetProposedTime extracts a proposed time from event metadata if present.
+// Returns nil if no proposal is found. Looks for properties set by tsk or
+// other compatible clients using the "tsk:proposedStart" and "tsk:proposedEnd" keys.
+func (e Event) GetProposedTime() *TimeProposal {
+	if e.Metadata == nil {
+		return nil
+	}
+
+	startStr, hasStart := e.Metadata["tsk:proposedStart"]
+	endStr, hasEnd := e.Metadata["tsk:proposedEnd"]
+
+	if !hasStart || !hasEnd {
+		return nil
+	}
+
+	start, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		return nil
+	}
+
+	end, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		return nil
+	}
+
+	return &TimeProposal{
+		Start: start,
+		End:   end,
+	}
+}
+
+// ResponseType represents the kind of response to an event invitation
+type ResponseType int
+
+const (
+	ResponseAccept ResponseType = iota
+	ResponseDecline
+	ResponseTentative
+)
+
+// String returns a human-readable representation of the response type.
+func (r ResponseType) String() string {
+	switch r {
+	case ResponseAccept:
+		return "Accept"
+	case ResponseDecline:
+		return "Decline"
+	case ResponseTentative:
+		return "Tentative"
+	default:
+		return "Unknown"
+	}
+}
+
+// RecurringScope determines which instances of a recurring event to respond to
+type RecurringScope int
+
+const (
+	// RecurringScopeThisInstance responds only to this single instance
+	RecurringScopeThisInstance RecurringScope = iota
+	// RecurringScopeAllInstances responds to all instances (past and future)
+	RecurringScopeAllInstances
+)
+
+// String returns a human-readable representation of the recurring scope.
+func (r RecurringScope) String() string {
+	switch r {
+	case RecurringScopeThisInstance:
+		return "This event only"
+	case RecurringScopeAllInstances:
+		return "All events in the series"
+	default:
+		return "Unknown"
+	}
+}
+
+// TimeProposal represents a proposed new time for an event
+type TimeProposal struct {
+	Start time.Time
+	End   time.Time
+}
+
+// RespondOptions configures how to respond to an event invitation
+type RespondOptions struct {
+	Response       ResponseType
+	Comment        string
+	ProposedTime   *TimeProposal
+	RecurringScope RecurringScope // Only used for recurring events
 }
