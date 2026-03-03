@@ -255,3 +255,8 @@ func parseSDKEventStatus(item models.Eventable) core.EventStatus {
 		return core.StatusNoResponse
 	}
 }
+
+// RespondToEvent is not yet implemented for the Outlook adapter.
+func (o *OutlookAdapter) RespondToEvent(ctx context.Context, calendarID, eventID string, opts core.RespondOptions) error {
+	return core.ErrNotImplemented
+}
