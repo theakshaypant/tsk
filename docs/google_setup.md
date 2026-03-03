@@ -1,8 +1,8 @@
 # Google Calendar API Setup Guide
 
-To allow the `tsk` CLI to fetch your events, you must create a Google Cloud Project and generate OAuth 2.0 credentials. This process produces the `credentials.json` file required by the adapter.
+To allow the `tsk` CLI to access your calendar, you must create a Google Cloud Project and generate OAuth 2.0 credentials. This process produces the `credentials.json` file required by the adapter.
 
-> **tsk only needs read access.** It requests the `calendar.readonly` scope, it can look at your events but can't touch them. No surprise meetings will be created on your behalf.
+> **tsk requests the `calendar.readonly` and `calendar.events` scopes.** This allows tsk to read your calendars and events, and respond to invitations (accept/decline/tentative). It cannot delete calendars or modify events in other ways. No surprise meetings will be created on your behalf.
 
 ### Phase 1: Create a Project
 
