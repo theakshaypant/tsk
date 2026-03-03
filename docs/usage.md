@@ -88,6 +88,101 @@ tsk -p outlook_work auth
 
 If the browser doesn't open automatically, the URL is printed to the terminal for manual copy-paste.
 
+### `tsk respond`
+
+Respond to calendar event invitations with accept, decline, or tentative. Optionally include a message to the organizer and propose a new time.
+
+**Event reference format:** `calendarID:eventID`
+
+To find event IDs, enable `display.id: true` in your profile config and run `tsk` or `tsk next`.
+
+```bash
+# Accept an event
+tsk respond primary:abc123xyz --accept
+
+# Decline with a message
+tsk respond primary:abc123xyz --decline --message "Sorry, I have a conflict"
+
+# Tentatively accept
+tsk respond primary:abc123xyz --tentative
+
+# Accept with message (short flag)
+tsk respond primary:abc123xyz --accept -m "Looking forward to it!"
+
+# Tentatively accept with proposed new time (simplest - just times)
+tsk respond primary:abc123xyz --tentative --propose "14:00/15:00"
+
+# Propose time with date (uses local timezone)
+tsk respond primary:abc123xyz --tentative --propose "2026-03-04T14:00/15:00"
+
+# Propose time in UTC explicitly
+tsk respond primary:abc123xyz --tentative --propose "2026-03-04T14:00Z/15:00Z"
+
+# Propose time in Pacific Time (UTC-8)
+tsk respond primary:abc123xyz --tentative --propose "2026-03-04T14:00-08:00/15:00-08:00"
+
+# Decline all instances of a recurring event
+tsk respond primary:abc123xyz --decline --all-instances
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--accept` | | Accept the event invitation |
+| `--decline` | | Decline the event invitation |
+| `--tentative` | | Mark as tentatively accepted |
+| `--message` | `-m` | Optional message to the organizer |
+| `--propose` | | Propose new time (format: `HH:MM/HH:MM` or full timestamp) |
+| `--all-instances` | | Respond to all instances of a recurring event |
+
+**Recurring Events:**
+- By default, responds to only the single instance you specify
+- Use `--all-instances` to respond to all occurrences in the recurring series
+
+**Time Format (Simple and Flexible):**
+
+The `--propose` flag accepts multiple formats (simplest first):
+
+1. **Time only** (recommended): `14:00/15:00`
+   - Uses the event's date automatically
+   - Uses your local timezone
+   - No seconds required
+
+2. **Date + time**: `2026-03-04T14:00/15:00`
+   - Uses your local timezone
+   - Useful for proposing a different date
+
+3. **Full timestamp with timezone**: `2026-03-04T14:00Z/15:00Z`
+   - Explicit UTC (Z suffix)
+   - Or specify offset: `14:00-08:00` (PST), `14:00+05:30` (IST)
+
+**Smart defaults:**
+- No date? → Uses event's date
+- No timezone? → Uses your local timezone
+- No seconds? → Defaults to :00
+
+The proposed time is sent to the organizer in two formats:
+1. **Human-readable**: "Mon Jan 2, 2006 at 3:04 PM PST" (converted to event's timezone)
+2. **RFC3339**: Full timestamp with timezone preserved for precision
+
+**Notes:**
+- Exactly one of `--accept`, `--decline`, or `--tentative` must be specified
+- **Proposed times approach**:
+  - **Sent to organizer**: Human-readable text in the attendee comment field
+  - **Stored locally**: Structured data in `extendedProperties.private` (your calendar only)
+  - Property names: `tsk:proposedStart`, `tsk:proposedEnd`, `tsk:proposedBy`
+  - **API limitation**: Only the comment field propagates to the organizer; extended properties set by attendees remain on their calendar copy only
+- You cannot respond to events where you are the organizer
+- You can only respond to events where you are an attendee
+
+**Provider support:**
+
+| Provider | Support |
+|----------|---------|
+| Google Calendar | ✅ Supported |
+| Outlook | 🚧 Coming soon |
+
 ### `tsk profile`
 
 Manage configuration profiles.
