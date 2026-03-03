@@ -180,13 +180,6 @@ The proposed time is sent to the organizer in two formats:
 - You cannot respond to events where you are the organizer
 - You can only respond to events where you are an attendee
 
-**Provider support:**
-
-| Provider | Support |
-|----------|---------|
-| Google Calendar | ✅ Supported |
-| Outlook | 🚧 Coming soon |
-
 ### `tsk profile`
 
 Manage configuration profiles.

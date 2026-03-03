@@ -1,8 +1,8 @@
 # Outlook / Office 365 Calendar Setup Guide
 
-To allow the `tsk` CLI to fetch your Outlook calendar events, you must register an application in Azure AD (Microsoft Entra ID) and generate a client ID. This is the Outlook equivalent of the Google `credentials.json` flow.
+To allow the `tsk` CLI to access your Outlook calendar, you must register an application in Azure AD (Microsoft Entra ID) and generate a client ID. This is the Outlook equivalent of the Google `credentials.json` flow.
 
-> **tsk only needs read access.** It requests the `Calendars.Read` scope — it can look at your events but can't create, modify, or delete anything.
+> **tsk requests the `Calendars.ReadWriteWrite` scope.** This allows tsk to read your calendars and events, and respond to invitations (accept/decline/tentative). It cannot delete calendars or modify events in other ways. No surprise meetings will be created on your behalf.
 
 ### Prerequisites: You Need an Azure AD Tenant
 
@@ -79,13 +79,13 @@ The app should already have the right permissions, but let's confirm:
 
 1. In your app registration, go to **API permissions** in the left sidebar.
 2. You should see **Microsoft Graph** with **User.Read** listed.
-3. If `Calendars.Read` isn't listed, that's fine — tsk requests it dynamically during login. But if you want to add it explicitly:
+3. If `Calendars.ReadWrite` isn't listed, that's fine — tsk requests it dynamically during login. But if you want to add it explicitly:
    - Click **+ Add a permission**.
    - Select **Microsoft Graph** > **Delegated permissions**.
-   - Search for `Calendars.Read` and check it.
+   - Search for `Calendars.ReadWrite` and check it.
    - Click **Add permissions**.
 
-> **No admin consent required.** `Calendars.Read` and `User.Read` are user-consentable permissions — no tenant admin needs to approve anything.
+> **No admin consent required.** `Calendars.ReadWrite` and `User.Read` are user-consentable permissions — no tenant admin needs to approve anything.
 
 ---
 
