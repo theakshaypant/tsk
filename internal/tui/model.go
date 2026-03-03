@@ -19,20 +19,22 @@ import (
 
 // KeyMap defines the keybindings for the TUI
 type KeyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	ScrollUp   key.Binding
-	ScrollDown key.Binding
-	Open       key.Binding
-	ViewEvent  key.Binding
-	Refresh    key.Binding
-	NextDay    key.Binding
-	PrevDay    key.Binding
-	Today      key.Binding
-	Tab        key.Binding
-	Split      key.Binding
-	Quit       key.Binding
-	Help       key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	ScrollUp    key.Binding
+	ScrollDown  key.Binding
+	Open        key.Binding
+	ViewEvent   key.Binding
+	QuickAccept key.Binding
+	Respond     key.Binding
+	Refresh     key.Binding
+	NextDay     key.Binding
+	PrevDay     key.Binding
+	Today       key.Binding
+	Tab         key.Binding
+	Split       key.Binding
+	Quit        key.Binding
+	Help        key.Binding
 }
 
 var DefaultKeyMap = KeyMap{
@@ -60,9 +62,17 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("v"),
 		key.WithHelp("v", "view event"),
 	),
-	Refresh: key.NewBinding(
+	QuickAccept: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "accept"),
+	),
+	Respond: key.NewBinding(
 		key.WithKeys("r"),
-		key.WithHelp("r", "refresh"),
+		key.WithHelp("r", "respond"),
+	),
+	Refresh: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "sync"),
 	),
 	NextDay: key.NewBinding(
 		key.WithKeys("right"),
@@ -81,8 +91,8 @@ var DefaultKeyMap = KeyMap{
 		key.WithHelp("tab", "switch panel"),
 	),
 	Split: key.NewBinding(
-		key.WithKeys("s"),
-		key.WithHelp("s", "toggle split"),
+		key.WithKeys("/"),
+		key.WithHelp("/", "toggle split"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
@@ -138,9 +148,12 @@ type Model struct {
 	viewportReady  bool
 	compactMode    bool           // True when terminal is too narrow for side-by-side
 	focusedPanel   PanelFocus     // Which panel is shown in compact mode
-	splitDirection SplitDirection // Vertical (side-by-side) or horizontal (stacked)
-	listPercent    int            // 0 = auto, 10-90 = user-configured list panel %
-	showHelp       bool           // Whether the help overlay is visible
+	splitDirection   SplitDirection // Vertical (side-by-side) or horizontal (stacked)
+	listPercent      int            // 0 = auto, 10-90 = user-configured list panel %
+	showHelp         bool           // Whether the help overlay is visible
+	showRespondModal bool           // Whether the respond modal is visible
+	respondModal     RespondModal   // The respond modal component
+	respondStatus    string         // Status message after responding
 }
 
 // NewModel creates a new TUI model
@@ -268,6 +281,11 @@ type eventsLoadedMsg struct {
 
 type tickMsg time.Time
 
+type responseSubmittedMsg struct {
+	success bool
+	err     error
+}
+
 // Commands
 func (m Model) loadEvents() tea.Cmd {
 	return func() tea.Msg {
@@ -288,6 +306,95 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(time.Minute, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// submitResponse sends the event response via the provider
+func (m Model) submitResponse(opts core.RespondOptions, proposalStr string, calendarID string) tea.Cmd {
+	return func() tea.Msg {
+		event := m.events[m.selectedIdx]
+		eventID := event.ID
+
+		// Parse proposed time if provided
+		if proposalStr != "" {
+			proposal, err := parseProposedTime(proposalStr, event.Start)
+			if err != nil {
+				return responseSubmittedMsg{success: false, err: fmt.Errorf("invalid proposed time: %w", err)}
+			}
+			opts.ProposedTime = proposal
+		}
+
+		// Submit response to provider
+		err := m.provider.RespondToEvent(context.Background(), calendarID, eventID, opts)
+		if err != nil {
+			return responseSubmittedMsg{success: false, err: err}
+		}
+
+		return responseSubmittedMsg{success: true}
+	}
+}
+
+// parseProposedTime parses a proposed time in the format "start/end"
+func parseProposedTime(proposal string, eventDate time.Time) (*core.TimeProposal, error) {
+	parts := strings.SplitN(proposal, "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("expected format: start/end")
+	}
+
+	start, err := parseTimeWithEventDate(strings.TrimSpace(parts[0]), eventDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start time: %w", err)
+	}
+
+	end, err := parseTimeWithEventDate(strings.TrimSpace(parts[1]), eventDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid end time: %w", err)
+	}
+
+	if !end.After(start) {
+		return nil, fmt.Errorf("end time must be after start time")
+	}
+
+	return &core.TimeProposal{
+		Start: start,
+		End:   end,
+	}, nil
+}
+
+// parseTimeWithEventDate parses a time string with smart defaults
+func parseTimeWithEventDate(timeStr string, eventDate time.Time) (time.Time, error) {
+	// Try parsing as full RFC3339 (with timezone)
+	t, err := time.Parse(time.RFC3339, timeStr)
+	if err == nil {
+		return t, nil
+	}
+
+	// Try parsing without timezone: 2006-01-02T15:04:05
+	t, err = time.ParseInLocation("2006-01-02T15:04:05", timeStr, time.Local)
+	if err == nil {
+		return t, nil
+	}
+
+	// Try parsing without timezone or seconds: 2006-01-02T15:04
+	t, err = time.ParseInLocation("2006-01-02T15:04", timeStr, time.Local)
+	if err == nil {
+		return t, nil
+	}
+
+	// Try parsing as time-only with seconds: 15:04:05
+	t, err = time.ParseInLocation("15:04:05", timeStr, time.Local)
+	if err == nil {
+		return time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(),
+			t.Hour(), t.Minute(), t.Second(), 0, time.Local), nil
+	}
+
+	// Try parsing as time-only without seconds: 15:04
+	t, err = time.ParseInLocation("15:04", timeStr, time.Local)
+	if err == nil {
+		return time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(),
+			t.Hour(), t.Minute(), 0, 0, time.Local), nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid time format")
 }
 
 // Init initializes the model
@@ -452,11 +559,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateDetailContent()
 		return m, tickCmd()
 
+	case responseSubmittedMsg:
+		m.showRespondModal = false
+		if msg.success {
+			m.respondStatus = "✓ Response sent successfully"
+			// Refresh events to show updated status
+			return m, m.loadEvents()
+		} else {
+			// Format error message nicely
+			m.respondStatus = m.formatRespondError(msg.err)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		// When respond modal is shown, pass messages to it
+		if m.showRespondModal {
+			var cmd tea.Cmd
+			m.respondModal, cmd = m.respondModal.Update(msg)
+
+			// Check if modal was submitted or cancelled
+			if m.respondModal.Cancelled() {
+				m.showRespondModal = false
+				return m, nil
+			}
+
+			if opts, ok := m.respondModal.GetResponse(); ok {
+				// Handle response submission - use calendar ID from modal (handles multi-calendar)
+				return m, m.submitResponse(opts, m.respondModal.GetProposalString(), m.respondModal.calendarID)
+			}
+
+			return m, cmd
+		}
+
 		// When help overlay is shown, any key dismisses it
 		if m.showHelp {
 			m.showHelp = false
 			return m, nil
+		}
+
+		// Clear respond status on any key press (except when modal/help is showing)
+		if m.respondStatus != "" {
+			m.respondStatus = ""
 		}
 
 		switch {
@@ -577,6 +720,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+
+		case key.Matches(msg, m.keys.QuickAccept):
+			// Quick accept - immediately accept the event without modal
+			if len(m.events) > 0 && m.selectedIdx < len(m.events) {
+				event := m.events[m.selectedIdx]
+				// Check if user can respond to this event
+				if event.Status != core.StatusNoResponse {
+					opts := core.RespondOptions{
+						Response:       core.ResponseAccept,
+						RecurringScope: core.RecurringScopeThisInstance,
+					}
+					m.respondStatus = "Accepting event..."
+					// Use primary calendar for quick accept
+					calendarID := event.Calendar.ID
+					return m, m.submitResponse(opts, "", calendarID)
+				} else {
+					// Show why user cannot respond
+					m.respondStatus = m.getCannotRespondMessage(event)
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.Respond):
+			// Open respond modal if event is selected and user is an attendee
+			if len(m.events) > 0 && m.selectedIdx < len(m.events) {
+				event := m.events[m.selectedIdx]
+				// Check if user can respond to this event
+				if event.Status != core.StatusNoResponse {
+					m.respondModal = NewRespondModal(event, event.Calendar.ID)
+					m.respondModal.width = m.width
+					m.respondModal.height = m.height
+					m.showRespondModal = true
+					m.respondStatus = "" // Clear previous status
+					return m, m.respondModal.Init()
+				} else {
+					// Show why user cannot respond
+					m.respondStatus = m.getCannotRespondMessage(event)
+				}
+			}
+			return m, nil
 		}
 	}
 	return m, nil
@@ -636,12 +819,29 @@ func (m Model) View() string {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, listPanel, " ", rightPanel)
 	}
 
-	// Help bar
+	// Help bar with optional status message
 	help := m.renderHelp()
+	if m.respondStatus != "" {
+		statusStyle := lipgloss.NewStyle().Foreground(primaryColor)
+		if strings.HasPrefix(m.respondStatus, "✗") {
+			statusStyle = statusStyle.Foreground(errorColor)
+		}
+		help = statusStyle.Render(m.respondStatus) + "  •  " + help
+	}
 
-	return AppStyle.Render(
+	baseView := AppStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, content, help),
 	)
+
+	// Show respond modal overlay if active
+	if m.showRespondModal {
+		modal := m.respondModal.View()
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			lipgloss.JoinVertical(lipgloss.Center, baseView, modal),
+		)
+	}
+
+	return baseView
 }
 
 func (m Model) renderHeader() string {
@@ -1050,17 +1250,16 @@ func (m Model) renderDetailPanel() string {
 }
 
 func (m Model) renderHelp() string {
-	var keys []string
-
-	keys = []string{
-		HelpKeyStyle.Render("↑/↓") + " nav",
-		HelpKeyStyle.Render("←/→") + " day",
-		HelpKeyStyle.Render("tab") + " panel",
-		HelpKeyStyle.Render("s") + " split",
+	// Compact help bar - only the essentials
+	keys := []string{
+		HelpKeyStyle.Render("↑/↓/←/→") + " move",
 		HelpKeyStyle.Render("t") + " now",
 		HelpKeyStyle.Render("enter") + " meet",
+		HelpKeyStyle.Render("a") + " accept",
+		HelpKeyStyle.Render("r") + " respond",
 		HelpKeyStyle.Render("v") + " view",
-		HelpKeyStyle.Render("r") + " refresh",
+		HelpKeyStyle.Render("s") + " sync",
+		HelpKeyStyle.Render("?") + " help",
 		HelpKeyStyle.Render("q") + " quit",
 	}
 
@@ -1094,10 +1293,12 @@ func (m Model) renderHelpPanel() string {
 		HelpKeyStyle.Render("  ←          ") + " Previous day",
 		HelpKeyStyle.Render("  t          ") + " Jump to now / today",
 		HelpKeyStyle.Render("  tab        ") + " Switch panel",
-		HelpKeyStyle.Render("  s          ") + " Toggle split direction",
+		HelpKeyStyle.Render("  /          ") + " Toggle split direction",
 		HelpKeyStyle.Render("  enter      ") + " Start meeting / open event",
+		HelpKeyStyle.Render("  a          ") + " Quick accept event",
+		HelpKeyStyle.Render("  r          ") + " Respond to event (full options)",
 		HelpKeyStyle.Render("  v          ") + " View event in calendar",
-		HelpKeyStyle.Render("  r          ") + " Refresh events",
+		HelpKeyStyle.Render("  s          ") + " Sync / refresh events",
 		HelpKeyStyle.Render("  q / ctrl+c ") + " Quit",
 		"",
 		lipgloss.NewStyle().Foreground(mutedColor).Italic(true).Render("  Press any key to close"),
@@ -1196,6 +1397,72 @@ func formatStatus(status core.EventStatus) string {
 		return lipgloss.NewStyle().Foreground(mutedColor).Render("No response needed")
 	default:
 		return "Unknown"
+	}
+}
+
+// formatRespondError converts provider errors to user-friendly messages
+func (m Model) formatRespondError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	switch {
+	case strings.Contains(err.Error(), "insufficient"):
+		return "✗ Insufficient permissions - please re-authenticate with 'tsk auth'"
+	case strings.Contains(err.Error(), core.ErrNotAttendee.Error()):
+		return "✗ Cannot respond: You are not an attendee of this event"
+	case strings.Contains(err.Error(), core.ErrIsOrganizer.Error()):
+		return "✗ Cannot respond: You are the organizer of this event"
+	case strings.Contains(err.Error(), core.ErrNotImplemented.Error()):
+		return "✗ Response feature not yet supported for this calendar provider"
+	case strings.Contains(err.Error(), "cancelled"):
+		return "✗ Cannot respond: This event has been cancelled"
+	case strings.Contains(err.Error(), "invalid proposed time"):
+		// Extract the specific error for more helpful feedback
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "expected format: start/end") {
+			return "✗ Missing '/' separator - use format: 14:00/15:00"
+		} else if strings.Contains(errMsg, "end time must be after start time") {
+			return "✗ End time must be after start time"
+		} else if strings.Contains(errMsg, "invalid start time") {
+			return "✗ Invalid start time - use 14:00 or 2026-03-04T14:00"
+		} else if strings.Contains(errMsg, "invalid end time") {
+			return "✗ Invalid end time - use 15:00 or 2026-03-04T15:00"
+		}
+		return "✗ Invalid time format - use 14:00/15:00 or 2026-03-04T14:00/15:00"
+	default:
+		// Show the error but make it clearer
+		errMsg := err.Error()
+		if len(errMsg) > 80 {
+			errMsg = errMsg[:77] + "..."
+		}
+		return fmt.Sprintf("✗ Error: %s", errMsg)
+	}
+}
+
+// getCannotRespondMessage returns an appropriate error message for why the user cannot respond
+func (m Model) getCannotRespondMessage(event core.Event) string {
+	// Check if it's a subscribed calendar event (e.g., holidays, shared calendars)
+	if len(event.Calendars) > 0 {
+		// Check if this is from a subscribed calendar by looking at calendar types
+		for _, cal := range event.Calendars {
+			if cal.Status == core.StatusNoResponse {
+				return "✗ Cannot respond to subscribed calendar events"
+			}
+		}
+	}
+
+	// Check specific status reasons
+	switch event.Status {
+	case core.StatusNoResponse:
+		// Self-created event or subscribed calendar
+		if event.Calendar.Name != "" {
+			return fmt.Sprintf("✗ Cannot respond to events from \"%s\"", event.Calendar.Name)
+		}
+		return "✗ Cannot respond to this event (no response needed)"
+	default:
+		// Shouldn't reach here, but provide a generic message
+		return "✗ Cannot respond to this event"
 	}
 }
 
