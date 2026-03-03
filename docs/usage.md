@@ -54,14 +54,18 @@ tsk ui --list-percent 40
 | `←` / `→` | Previous / next day |
 | `t` | Jump to now (or jump to today if viewing another day) |
 | `tab` | Switch focus between list and detail panels |
-| `s` | Toggle split direction (side / stack) |
+| `/` | Toggle split direction (side / stack) |
 | `enter` | Open meeting link in browser |
+| `a` | Quick accept event (single click accept) |
+| `r` | Respond to event (full options modal) |
 | `v` | Open event in calendar (browser) |
-| `r` | Refresh events |
+| `s` | Sync / refresh events |
 | `ctrl+u` / `pgup` | Scroll detail panel up |
 | `ctrl+d` / `pgdown` | Scroll detail panel down |
 | `?` | Show help overlay |
 | `q` / `ctrl+c` | Quit |
+
+**Note:** The bottom help bar shows a simplified view with only the most common shortcuts. Press `?` to see the complete list of all available keyboard shortcuts.
 
 ### `tsk calendars`
 
