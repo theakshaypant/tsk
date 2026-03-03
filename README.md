@@ -59,7 +59,7 @@ Accept, decline, or tentatively respond to calendar event invitations directly f
 tsk ui
 ```
 
-A proper TUI with an event list and detail panel, day-by-day navigation, a "NOW" marker that auto-scrolls to where you are, meeting link shortcuts, and merged duplicates across shared calendars.
+A proper TUI with an event list and detail panel, day-by-day navigation, a "NOW" marker that auto-scrolls to where you are, meeting link shortcuts, and merged duplicates across shared calendars. Quick-accept invitations with `a` or open the full respond modal with `r` to decline, go tentative, add messages, or propose new times.
 
 ## Documentation
 
