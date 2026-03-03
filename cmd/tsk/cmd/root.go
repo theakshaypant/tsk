@@ -578,7 +578,7 @@ func DisplayEvent(event core.Event, opts DisplayOptions) {
 	}
 
 	if opts.ShowID {
-		fmt.Printf("%s🆔 ID:          %s\n", indent, event.ID)
+		fmt.Printf("%s🆔 Event Ref:   %s:%s\n", indent, event.Calendar.ID, event.ID)
 	}
 }
 
