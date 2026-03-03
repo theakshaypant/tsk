@@ -256,7 +256,180 @@ func parseSDKEventStatus(item models.Eventable) core.EventStatus {
 	}
 }
 
-// RespondToEvent is not yet implemented for the Outlook adapter.
+// RespondToEvent responds to a calendar event invitation (accept/decline/tentative).
 func (o *OutlookAdapter) RespondToEvent(ctx context.Context, calendarID, eventID string, opts core.RespondOptions) error {
-	return core.ErrNotImplemented
+	// Determine which event endpoint to use based on calendarID
+	var event models.Eventable
+	var err error
+
+	if calendarID == "default" {
+		event, err = o.client.Me().Events().ByEventId(eventID).Get(ctx, nil)
+	} else {
+		event, err = o.client.Me().Calendars().ByCalendarId(calendarID).Events().ByEventId(eventID).Get(ctx, nil)
+	}
+
+	if err != nil {
+		if isInsufficientScopeError(err) {
+			return core.ErrInsufficientScope
+		}
+		return fmt.Errorf("failed to fetch event: %w", err)
+	}
+
+	// Check if event is cancelled
+	if isCancelled := event.GetIsCancelled(); isCancelled != nil && *isCancelled {
+		return fmt.Errorf("cannot respond to a cancelled event")
+	}
+
+	// Determine target event ID for recurring events
+	targetEventID := eventID
+	targetCalendarID := calendarID
+
+	// For recurring events, handle scope
+	if opts.RecurringScope == core.RecurringScopeAllInstances {
+		// Get the series master ID from the event
+		if seriesMasterId := event.GetSeriesMasterId(); seriesMasterId != nil && *seriesMasterId != "" {
+			targetEventID = *seriesMasterId
+			// Re-fetch the series master event
+			if calendarID == "default" {
+				event, err = o.client.Me().Events().ByEventId(targetEventID).Get(ctx, nil)
+			} else {
+				event, err = o.client.Me().Calendars().ByCalendarId(calendarID).Events().ByEventId(targetEventID).Get(ctx, nil)
+			}
+			if err != nil {
+				if isInsufficientScopeError(err) {
+					return core.ErrInsufficientScope
+				}
+				return fmt.Errorf("failed to fetch series master event: %w", err)
+			}
+		}
+	}
+
+	// Check if user is the organizer
+	if isOrganizer := event.GetIsOrganizer(); isOrganizer != nil && *isOrganizer {
+		return core.ErrIsOrganizer
+	}
+
+	// Validate user is an attendee by checking ResponseStatus
+	// In Microsoft Graph, ResponseStatus represents the authenticated user's response.
+	// If it's nil or "none", the user is not an attendee (just viewing a shared calendar event).
+	responseStatus := event.GetResponseStatus()
+	if responseStatus == nil {
+		return core.ErrNotAttendee
+	}
+
+	response := responseStatus.GetResponse()
+	if response == nil || *response == models.NONE_RESPONSETYPE {
+		return core.ErrNotAttendee
+	}
+
+	// Additional safety check: ensure attendees list is not empty
+	attendees := event.GetAttendees()
+	if len(attendees) == 0 {
+		return core.ErrNotAttendee
+	}
+
+	// Build comment message
+	comment := opts.Comment
+	if opts.ProposedTime != nil {
+		// Format proposed time for organizer
+		proposedStart := opts.ProposedTime.Start
+		proposedEnd := opts.ProposedTime.End
+
+		// If the event has a timezone, convert proposed times to that timezone
+		if eventStart := event.GetStart(); eventStart != nil {
+			if tz := eventStart.GetTimeZone(); tz != nil && *tz != "" {
+				if loc, err := time.LoadLocation(*tz); err == nil {
+					proposedStart = proposedStart.In(loc)
+					proposedEnd = proposedEnd.In(loc)
+				}
+			}
+		}
+
+		proposalText := fmt.Sprintf("Proposed new time:\n  %s to %s\n  (%s to %s)",
+			proposedStart.Format("Mon Jan 2, 2006 at 3:04 PM MST"),
+			proposedEnd.Format("3:04 PM MST"),
+			opts.ProposedTime.Start.Format(time.RFC3339),
+			opts.ProposedTime.End.Format(time.RFC3339))
+		if comment != "" {
+			comment = comment + "\n\n" + proposalText
+		} else {
+			comment = proposalText
+		}
+	}
+
+	// Use the appropriate accept/decline/tentativelyAccept endpoint
+	// Microsoft Graph has specific endpoints for responding to events
+	sendResponse := true
+
+	switch opts.Response {
+	case core.ResponseAccept:
+		if targetCalendarID == "default" {
+			acceptBody := users.NewItemEventsItemAcceptPostRequestBody()
+			if comment != "" {
+				acceptBody.SetComment(&comment)
+			}
+			acceptBody.SetSendResponse(&sendResponse)
+			err = o.client.Me().Events().ByEventId(targetEventID).Accept().Post(ctx, acceptBody, nil)
+		} else {
+			acceptBody := users.NewItemCalendarsItemEventsItemAcceptPostRequestBody()
+			if comment != "" {
+				acceptBody.SetComment(&comment)
+			}
+			acceptBody.SetSendResponse(&sendResponse)
+			err = o.client.Me().Calendars().ByCalendarId(targetCalendarID).Events().ByEventId(targetEventID).Accept().Post(ctx, acceptBody, nil)
+		}
+
+	case core.ResponseDecline:
+		if targetCalendarID == "default" {
+			declineBody := users.NewItemEventsItemDeclinePostRequestBody()
+			if comment != "" {
+				declineBody.SetComment(&comment)
+			}
+			declineBody.SetSendResponse(&sendResponse)
+			err = o.client.Me().Events().ByEventId(targetEventID).Decline().Post(ctx, declineBody, nil)
+		} else {
+			declineBody := users.NewItemCalendarsItemEventsItemDeclinePostRequestBody()
+			if comment != "" {
+				declineBody.SetComment(&comment)
+			}
+			declineBody.SetSendResponse(&sendResponse)
+			err = o.client.Me().Calendars().ByCalendarId(targetCalendarID).Events().ByEventId(targetEventID).Decline().Post(ctx, declineBody, nil)
+		}
+
+	case core.ResponseTentative:
+		if targetCalendarID == "default" {
+			tentativeBody := users.NewItemEventsItemTentativelyAcceptPostRequestBody()
+			if comment != "" {
+				tentativeBody.SetComment(&comment)
+			}
+			tentativeBody.SetSendResponse(&sendResponse)
+			err = o.client.Me().Events().ByEventId(targetEventID).TentativelyAccept().Post(ctx, tentativeBody, nil)
+		} else {
+			tentativeBody := users.NewItemCalendarsItemEventsItemTentativelyAcceptPostRequestBody()
+			if comment != "" {
+				tentativeBody.SetComment(&comment)
+			}
+			tentativeBody.SetSendResponse(&sendResponse)
+			err = o.client.Me().Calendars().ByCalendarId(targetCalendarID).Events().ByEventId(targetEventID).TentativelyAccept().Post(ctx, tentativeBody, nil)
+		}
+	}
+
+	if err != nil {
+		if isInsufficientScopeError(err) {
+			return core.ErrInsufficientScope
+		}
+		return fmt.Errorf("failed to respond to event: %w", err)
+	}
+
+	return nil
+}
+
+// isInsufficientScopeError checks if the error is due to insufficient OAuth scope.
+func isInsufficientScopeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "insufficient") &&
+		(strings.Contains(errStr, "scope") || strings.Contains(errStr, "permission"))
 }

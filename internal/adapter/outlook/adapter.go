@@ -76,7 +76,7 @@ func (o *OutlookAdapter) OAuthConfig() *oauth2.Config {
 		Endpoint:    microsoft.AzureADEndpoint(o.tenantID),
 		RedirectURL: "http://localhost:8085/callback",
 		Scopes: []string{
-			"https://graph.microsoft.com/Calendars.Read",
+			"https://graph.microsoft.com/Calendars.ReadWrite",
 			"https://graph.microsoft.com/User.Read",
 			"offline_access",
 		},
